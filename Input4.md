@@ -29,7 +29,7 @@ machine class:
 # We start assigning tasks to the efficient machine, using wasteful only if 
 # utilization is too high. Naive scheduler uses 0.17 kWh instead of 0.024 kWh,
 # which we get when we turn wasteful off (delete it).
-```
+
 task class:
 {
         Start time: 1000
@@ -44,4 +44,3 @@ task class:
         Task type: HPC
         Seed: 520230
 }
-```
