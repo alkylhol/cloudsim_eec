@@ -1,6 +1,6 @@
+# Low performing efficient machine
 machine class:
 {
-# Low performing efficient machine
         Number of machines: 16
         CPU type: X86
         Number of cores: 8
@@ -12,9 +12,9 @@ machine class:
         GPUs: no
 }
 
+# Can our system handle a person spamming web requests?
 task class:
 {
-# Can our system handle a person spamming web requests?
         Start time: 1000
         End time : 4000
         Inter arrival: 3

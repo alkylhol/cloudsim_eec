@@ -1,6 +1,6 @@
+# High performing GPU machine
 machine class:
 {
-# High performing GPU machine
         Number of machines: 16
         CPU type: X86
         Number of cores: 8
@@ -11,10 +11,10 @@ machine class:
         MIPS: [8000, 4000, 1000, 600]
         GPUs: yes
 }
-task class:
-{
 # This task is very intensive AI model training. Hogs memory, but is SLA3. 
 # This is best effort, so we should not get memory overflows.
+task class:
+{
         Start time: 1000
         End time : 1500
         Inter arrival: 10

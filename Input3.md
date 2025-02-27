@@ -1,6 +1,6 @@
+# GPU-enabled high performing machine
 machine class:
 {
-# GPU-enabled high performing machine
         Number of machines: 16
         CPU type: X86
         Number of cores: 8
@@ -12,9 +12,9 @@ machine class:
         GPUs: yes
 }
 
+# GPU-enhanced tasks for an X86 machine
 task class:
 {
-# GPU-enhanced tasks for an X86 machine
         Start time: 1000
         End time : 1500
         Inter arrival: 100
@@ -28,9 +28,9 @@ task class:
         Seed: 520230
 }
 
+# Lower performing efficient machine
 machine class:
 {
-# Lower performing efficient machine
         Number of machines: 16
         CPU type: POWER
         Number of cores: 8
@@ -42,10 +42,10 @@ machine class:
         GPUs: no
 }
 
-task class:
-{
 # AIX web requests. We must check CPU compatibility for these tasks. 
 # On top of that we should check GPU capability, this one doesn't need GPU.
+task class:
+{
         Start time: 1000
         End time : 1500
         Inter arrival: 100

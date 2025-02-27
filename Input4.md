@@ -1,6 +1,6 @@
+# Wasteful machine
 machine class:
 {
-# Wasteful machine
         Number of machines: 16
         CPU type: X86
         Number of cores: 8
@@ -11,9 +11,10 @@ machine class:
         MIPS: [1000, 300, 200, 100]
         GPUs: no
 }
+
+# Efficient machine
 machine class:
 {
-# Efficient machine
         Number of machines: 16
         CPU type: X86
         Number of cores: 8
@@ -24,11 +25,12 @@ machine class:
         MIPS: [800, 200, 100, 50]
         GPUs: no
 }
-task class:
-{
+
 # We start assigning tasks to the efficient machine, using wasteful only if 
 # utilization is too high. Naive scheduler uses 0.17 kWh instead of 0.024 kWh,
 # which we get when we turn wasteful off (delete it).
+task class:
+{
         Start time: 1000
         End time : 1500
         Inter arrival: 100
