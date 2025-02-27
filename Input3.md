@@ -1,4 +1,5 @@
-# GPU-enabled high performing machine
+# This input file tests the scheduler's ability to compatibly assign tasks to machines
+# X86 machine
 machine class:
 {
         Number of machines: 16
@@ -12,7 +13,7 @@ machine class:
         GPUs: yes
 }
 
-# GPU-enhanced tasks for an X86 machine
+# Tasks for an X86 machine
 task class:
 {
         Start time: 1000
@@ -28,7 +29,7 @@ task class:
         Seed: 520230
 }
 
-# Lower performing efficient machine
+# POWER machine
 machine class:
 {
         Number of machines: 16
@@ -42,8 +43,7 @@ machine class:
         GPUs: no
 }
 
-# AIX web requests. We must check CPU compatibility for these tasks. 
-# On top of that we should check GPU capability, this one doesn't need GPU.
+# AIX web requests. 
 task class:
 {
         Start time: 1000

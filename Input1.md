@@ -1,3 +1,4 @@
+# This input file tests a spike in utilization
 # Low performing efficient machine
 machine class:
 {

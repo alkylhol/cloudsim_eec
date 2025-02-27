@@ -1,3 +1,4 @@
+# This input file tests the scheduler's awareness to energy efficiency
 # Wasteful machine
 machine class:
 {

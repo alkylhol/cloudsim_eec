@@ -1,3 +1,4 @@
+# This input file tests safety from memory overflows
 # High performing GPU machine
 machine class:
 {
