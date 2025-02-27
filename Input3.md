@@ -14,7 +14,7 @@ machine class:
 
 task class:
 {
-# GPU-enhanced for an X86 machine
+# GPU-enhanced tasks for an X86 machine
         Start time: 1000
         End time : 1500
         Inter arrival: 100
