@@ -50,7 +50,7 @@ task class:
         Start time: 1000
         End time : 2000000
         Inter arrival: 150000
-        Expected runtime: 1500
+        Expected runtime: 15000
         Memory: 1024
         VM type: WIN
         GPU enabled: yes
