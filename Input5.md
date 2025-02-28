@@ -47,7 +47,7 @@ task class:
 # GPU task.
 task class:
 {
-        Start time: 1000
+        Start time: 100000
         End time : 2000000
         Inter arrival: 150000
         Expected runtime: 15000
@@ -59,4 +59,3 @@ task class:
         Task type: CRYPTO
         Seed: 520230
 }
-
