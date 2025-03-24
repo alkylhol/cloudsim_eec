@@ -90,7 +90,7 @@ void Scheduler::Init() {
     }
 
     //turn on about 1/3 of the machines
-    float frac = 1.0f/2.0f;
+    float frac = 1.0f/3.0f;
     TurnOnFraction(frac, mc.arm);
     TurnOnFraction(frac, mc.x86);
     TurnOnFraction(frac, mc.riscv); 
@@ -105,6 +105,7 @@ void Scheduler::Init() {
 
 void Scheduler::MigrationComplete(Time_t time, VMId_t vm_id) {
     // Update your data structure. The VM now can receive new tasks
+    
 }
 
 bool Scheduler::FindMachine(TaskId_t task_id, bool active) {
