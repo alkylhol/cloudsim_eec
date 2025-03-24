@@ -12,6 +12,8 @@
 
 #include "Interfaces.h"
 
+
+
 class Scheduler {
 public:
     Scheduler()                 {}
@@ -21,6 +23,7 @@ public:
     void PeriodicCheck(Time_t now);
     void Shutdown(Time_t now);
     void TaskComplete(Time_t now, TaskId_t task_id);
+    bool FindMachine(TaskId_t task_id, bool active);
 private:
     vector<VMId_t> vms;
     vector<MachineId_t> machines;
