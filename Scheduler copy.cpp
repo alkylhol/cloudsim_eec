@@ -403,6 +403,7 @@ void SLAWarning(Time_t time, TaskId_t task_id) {
 }
 
 void StateChangeComplete(Time_t time, MachineId_t machine_id) {
+    SimOutput(to_string(time), 0);
     MachineInfo_t m_info = Machine_GetInfo(machine_id);
     if(m_info.s_state == S0){
         if (pending.find(machine_id) != pending.end()) {

@@ -20,8 +20,12 @@ typedef struct {
     vector<MachineVMs> riscv;
     vector<MachineVMs> x86;
 } machine_cpus;
+typedef struct {
+    vector<TaskId_t> tasks;
+    size_t memory_used;
+} tasks_and_memory;
+unordered_map<MachineId_t, tasks_and_memory> pending;
 
-unordered_map<MachineId_t, vector<TaskId_t>> pending;
 
 vector<TaskId_t> high_pri;
 vector<TaskId_t> mid_pri;
@@ -41,7 +45,7 @@ void TurnOnFraction(float frac, vector<MachineVMs> arr){
         // active_machines++;
     }
     while(i < arr.size()){
-        Machine_SetState(arr[i].id, S5);
+        Machine_SetState(arr[i].id, S0);
         i++;
     }
 }
@@ -56,7 +60,6 @@ void Scheduler::Init() {
     // 
     SimOutput("Scheduler::Init(): Total number of machines is " + to_string(Machine_GetTotal()), 3);
     SimOutput("Scheduler::Init(): Initializing scheduler", 1);
-
     //check how many machines of each cpu type
     size_t i;
     for (i = 0; i < Machine_GetTotal(); i++) {
@@ -120,33 +123,46 @@ bool Scheduler::FindMachine(TaskId_t task_id, bool active) {
     for(i = 0; i < compat_machines.size(); i++) {
         //MachineVMs machine = compat_machines[i];
         MachineInfo_t m_info = Machine_GetInfo(compat_machines[i].id);
-        if (active && m_info.s_state > S0) {
+        if (active && m_info.s_state != S0) {
             continue;
         }
         if (!active && m_info.s_state == S0) {
             continue;
         }
         if (m_info.memory_used + task.required_memory < m_info.memory_size && m_info.active_tasks < m_info.num_cpus) {
+            bool allowed = active;
+            allowed = allowed || (!active && pending.find(compat_machines[i].id) == pending.end());
+            allowed = allowed || (!active 
+                    && pending.find(compat_machines[i].id) != pending.end() 
+                    && pending[compat_machines[i].id].tasks.size() < m_info.num_cpus 
+                    && pending[compat_machines[i].id].memory_used + task.required_memory < m_info.memory_size);
+            if(!allowed) continue;
             size_t j = 0;
             for(j = 0; j < compat_machines[i].vms.size(); j++){
                 if(VM_GetInfo(compat_machines[i].vms[j]).vm_type == task.required_vm){
                     VM_AddTask(compat_machines[i].vms[j], task_id, task.priority);
+                    return true;
                 }
             }
             if(j == compat_machines[i].vms.size()){
 
-                if(active){
-                    Machine_SetState(compat_machines[i].id, S0);
+                if(!active){
                     if (pending.find(compat_machines[i].id) != pending.end()) {
                         //exists
-                        pending[compat_machines[i].id].push_back(task_id);
+                        pending[compat_machines[i].id].tasks.push_back(task_id);
+                        pending[compat_machines[i].id].memory_used += task.required_memory;
                     } else {
                         vector<TaskId_t> this_task;
                         this_task.push_back(task_id);
-                        pending[compat_machines[i].id] = this_task;
+                        tasks_and_memory tandm;
+                        tandm.tasks = this_task;
+                        tandm.memory_used = task.required_memory;
+                        pending[compat_machines[i].id] = tandm;
                     }
-                    m_info.memory_used += task.required_memory;
-                    m_info.active_tasks ++;
+                    Machine_SetState(compat_machines[i].id, S0);
+                    // m_info.memory_used += task.required_memory;
+                    // m_info.active_tasks ++;
+                    //return false;
                 } else {
                     compat_machines[i].vms.push_back(VM_Create(task.required_vm, task.required_cpu));
                     //SimOutput("That one", 0);
@@ -244,6 +260,7 @@ void Scheduler::PeriodicCheck(Time_t now) {
             }
         }
         high_pri.erase(high_pri.begin());
+        // if (FindMachine(high_pri[0], true) || FindMachine(high_pri[0], false))
     }
     while(!done && !mid_pri.empty()){
         if(!FindMachine(mid_pri[0], true)){
@@ -286,6 +303,7 @@ bool comp (MachineVMs a, MachineVMs b) {
 }
 
 void Scheduler::TaskComplete(Time_t now, TaskId_t task_id) {
+    //SimOutput("complete run", 0);
     TaskInfo_t task = GetTaskInfo(task_id);
     vector<MachineVMs> compat_machines;
     switch (task.required_cpu) {
@@ -323,7 +341,7 @@ void Scheduler::TaskComplete(Time_t now, TaskId_t task_id) {
                                 }
                             }
                             if(l == compat_machines[k].vms.size()){
-                                Machine_SetState(compat_machines[k].id, S0);
+                                // Machine_SetState(compat_machines[k].id, S0);
                                 
                                 compat_machines[k].vms.push_back(VM_Create(ot.required_vm, ot.required_cpu));
                                 SimOutput("That one", 0);
@@ -398,9 +416,11 @@ void SLAWarning(Time_t time, TaskId_t task_id) {
 }
 
 void StateChangeComplete(Time_t time, MachineId_t machine_id) {
+    //SimOutput(to_string(time), 0);
     MachineInfo_t m_info = Machine_GetInfo(machine_id);
     if(m_info.s_state == S0){
         if (pending.find(machine_id) != pending.end()) {
+            //SimOutput("Here", 0);
             vector<MachineVMs> compat_machines;
             MachineVMs this_m;
             switch (m_info.cpu) {
@@ -429,11 +449,11 @@ void StateChangeComplete(Time_t time, MachineId_t machine_id) {
             }
 
             //exists
-            vector<TaskId_t> tasks = pending[machine_id];
+            vector<TaskId_t>& tasks = pending[machine_id].tasks;
             while (!tasks.empty()){
                 TaskInfo_t task = GetTaskInfo(tasks[0]);
-                m_info.active_tasks --;
-                m_info.memory_used -= task.required_memory;
+                // m_info.active_tasks --;
+                // m_info.memory_used -= task.required_memory;
                 size_t j = 0;
                 for(j = 0; j < this_m.vms.size(); j++){
                     if(VM_GetInfo(this_m.vms[j]).vm_type == task.required_vm){
