@@ -4,7 +4,7 @@
 //
 //  Created by ELMOOTAZBELLAH ELNOZAHY on 10/20/24.
 //
-//this is pmapper
+// this is pmapper
 #include "Scheduler.hpp"
 #include <bits/stdc++.h>
 #include <unordered_map>
@@ -101,6 +101,13 @@ void Scheduler::MigrationComplete(Time_t time, VMId_t vm_id) {
     
 }
 
+bool energy_comp(MachineVMs a, MachineVMs b) {
+    //return Machine_GetInfo(a.id).s_states[0] < Machine_GetInfo(b.id).s_states[0];
+    MachineInfo_t am = Machine_GetInfo(a.id);
+    MachineInfo_t bm = Machine_GetInfo(b.id);
+    return am.s_states.begin() < bm.s_states.begin();
+}
+
 bool Scheduler::FindMachine(TaskId_t task_id, bool active) {
     TaskInfo_t task = GetTaskInfo(task_id);
     vector<MachineVMs> compat_machines;
@@ -120,6 +127,7 @@ bool Scheduler::FindMachine(TaskId_t task_id, bool active) {
     }
 
     size_t i = 0;
+    sort(compat_machines.begin(), compat_machines.end(), energy_comp);
     for(i = 0; i < compat_machines.size(); i++) {
         //MachineVMs machine = compat_machines[i];
         MachineInfo_t m_info = Machine_GetInfo(compat_machines[i].id);
