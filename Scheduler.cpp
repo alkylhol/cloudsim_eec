@@ -181,7 +181,10 @@ bool Scheduler::FindMachine(TaskId_t task_id, bool active) {
     size_t i = 0;
     // policy: priority for high machines: SLA0, SLA1, SLA2. If high is gpu, then if task is GPU, if SLA > any other SLA, evict
     // for low machines, SLA2. if any SLA3 tasks exist, evict.
-    // basically, on gpu machines, if GPU has equal SLA or higher, then evict. Otherwise, put on queue for GPU machine
+    // basically, on gpu machines, if GPU has equal SLA or higher than a non-gpu task, then evict. Assign to another machine and 
+    // migrate to GPU machine on task completition
+
+    
     for(i = 0; i < compat_machines.size(); i++) {
         //MachineVMs machine = compat_machines[i];
         sort(compat_machines.begin(), compat_machines.end(), dec_comp);
