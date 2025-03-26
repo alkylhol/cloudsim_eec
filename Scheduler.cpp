@@ -20,6 +20,13 @@ typedef struct {
     vector<MachineVMs> riscv;
     vector<MachineVMs> x86;
 } machine_cpus;
+
+typedef struct{
+    vector<MachineVMs> gpu;
+    vector<MachineVMs> high;
+    vector<MachineVMs> medium;
+    vector<MachineVMs> low;
+} levels;
 typedef struct {
     vector<TaskId_t> tasks;
     size_t memory_used;
