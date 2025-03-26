@@ -49,13 +49,31 @@ void TurnOnFraction(float frac, vector<MachineVMs> arr){
         i++;
     }
 }
+
+float fit_score(MachineInfo_t m_info){
+    float mem_util = (float)m_info.memory_used / (float)m_info.memory_size;
+    float cpu_util = (float)m_info.active_tasks / (float)m_info.num_cpus;
+
+    float power_penalty = (m_info.s_state == S0) ? 0.0f : 0.2f * m_info.s_state;
+
+    float mips_per_p = (float)m_info.performance[0] / (float)m_info.p_states[0];
+    return mips_per_p + mem_util + cpu_util - power_penalty;
+}
+bool energy_comp(MachineVMs a, MachineVMs b) {
+    //return false;
+    //return Machine_GetInfo(a.id).s_states[0] < Machine_GetInfo(b.id).s_states[0];
+    MachineInfo_t am = Machine_GetInfo(a.id);
+    MachineInfo_t bm = Machine_GetInfo(b.id);
+    return fit_score(am) > fit_score(bm);
+}
+
 void Scheduler::Init() {
     // Find the parameters of the clusters
     // Get the total number of machines
     // For each machine:
     //      Get the type of the machine
     //      Get the memory of the machine
-    //      Get the number of CPUs
+     
     //      Get if there is a GPU or not
     // 
     SimOutput("Scheduler::Init(): Total number of machines is " + to_string(Machine_GetTotal()), 3);
@@ -81,6 +99,10 @@ void Scheduler::Init() {
                 break;
         }
     }
+    sort(mc.arm.begin(), mc.arm.end(), energy_comp);
+    sort(mc.x86.begin(), mc.x86.end(), energy_comp);
+    sort(mc.riscv.begin(), mc.riscv.end(), energy_comp);
+    sort(mc.power.begin(), mc.power.end(), energy_comp);
 
     //turn on about 1/3 of the machines
     float frac = 1.0f/3.0f;
@@ -101,12 +123,7 @@ void Scheduler::MigrationComplete(Time_t time, VMId_t vm_id) {
     
 }
 
-bool energy_comp(MachineVMs a, MachineVMs b) {
-    //return Machine_GetInfo(a.id).s_states[0] < Machine_GetInfo(b.id).s_states[0];
-    MachineInfo_t am = Machine_GetInfo(a.id);
-    MachineInfo_t bm = Machine_GetInfo(b.id);
-    return am.s_states.begin() < bm.s_states.begin();
-}
+
 
 bool Scheduler::FindMachine(TaskId_t task_id, bool active) {
     TaskInfo_t task = GetTaskInfo(task_id);
@@ -200,58 +217,6 @@ void Scheduler::NewTask(Time_t now, TaskId_t task_id) {
             low_pri.push_back(task_id);
             break;
     }
-
-    // bool done = false;
-    // while(!done && !high_pri.empty()){
-    //     if(!FindMachine(high_pri[0], true)){
-    //         if (!FindMachine(high_pri[0], false)){
-    //             done = true;
-    //             break;
-    //         }
-    //     }
-    //     high_pri.erase(high_pri.begin());
-    // }
-    // while(!done && !mid_pri.empty()){
-    //     if(!FindMachine(mid_pri[0], true)){
-    //         if (!FindMachine(mid_pri[0], false)){
-    //             done = true;
-    //             break;
-    //         }
-    //     }
-    //     mid_pri.erase(mid_pri.begin());
-    // }
-    // while(!done && !low_pri.empty()){
-    //     if(!FindMachine(low_pri[0], true)){
-    //         if (!FindMachine(low_pri[0], false)){
-    //             done = true;
-    //             break;
-    //         }
-    //     }
-    //     low_pri.erase(low_pri.begin());
-    // }
-
-    // if(!FindMachine(task_id, true)){
-    //     if (!FindMachine(task_id, false)){
-    //         SimOutput("task not added", 0);
-    //         switch(task.priority){
-    //             case HIGH_PRIORITY:
-    //                 high_pri.push_back(task_id);
-    //                 break;
-    //             case MID_PRIORITY:
-    //                 mid_pri.push_back(task_id);
-    //                 break;
-    //             case LOW_PRIORITY:
-    //                 low_pri.push_back(task_id);
-    //                 break;
-    //         }
-    //     }
-    // }
-    // if(migrating) {
-    //     VM_AddTask(vms[0], task_id, priority);
-    // }
-    // else {
-    //     VM_AddTask(vms[task_id % active_machines], task_id, priority);
-    // }// Skeleton code, you need to change it according to your algorithm
 }
 
 void Scheduler::PeriodicCheck(Time_t now) {
@@ -270,6 +235,7 @@ void Scheduler::PeriodicCheck(Time_t now) {
         high_pri.erase(high_pri.begin());
         // if (FindMachine(high_pri[0], true) || FindMachine(high_pri[0], false))
     }
+    if (done) return;
     while(!done && !mid_pri.empty()){
         if(!FindMachine(mid_pri[0], true)){
             if (!FindMachine(mid_pri[0], false)){
@@ -279,6 +245,8 @@ void Scheduler::PeriodicCheck(Time_t now) {
         }
         mid_pri.erase(mid_pri.begin());
     }
+    if (done) return;
+
     while(!done && !low_pri.empty()){
         if(!FindMachine(low_pri[0], true)){
             if (!FindMachine(low_pri[0], false)){
