@@ -22,11 +22,13 @@ typedef struct {
 } machine_cpus;
 
 typedef struct{
-    vector<MachineVMs> gpu;
-    vector<MachineVMs> high;
-    vector<MachineVMs> medium;
-    vector<MachineVMs> low;
+    vector<MachineVMs> high_gpu;
+    vector<MachineVMs> low_gpu;
+    vector<MachineVMs> high; //SLA0, SLA1
+    vector<MachineVMs> medium; //SLA2
+    vector<MachineVMs> low; //SLA3
 } levels;
+
 typedef struct {
     vector<TaskId_t> tasks;
     size_t memory_used;
@@ -38,7 +40,7 @@ vector<TaskId_t> high_pri;
 vector<TaskId_t> mid_pri;
 vector<TaskId_t> low_pri;
 
-
+levels lev;
 static bool migrating = false;
 //static unsigned active_machines = 0;
 static machine_cpus mc;
@@ -54,6 +56,26 @@ void TurnOnFraction(float frac, vector<MachineVMs> arr){
     while(i < arr.size()){
         Machine_SetState(arr[i].id, S0);
         i++;
+    }
+}
+
+void SortMachines(vector<MachineVMs> arr){
+    vector<unsigned> perfs;
+    for(MachineVMs mvm : arr){
+        unsigned perf = Machine_GetInfo(mvm.id).performance[0];
+        if(count(perfs.begin(), perfs.end(), perf) == 0){
+            perfs.push_back(perf);
+        }
+    }
+    sort(perfs.begin(), perfs.end(), [](int a, int b) {
+        return a > b; 
+    });
+
+    for(MachineVMs mvm : arr){
+        unsigned perf = Machine_GetInfo(mvm.id).performance[0];
+        if(count(perfs.begin(), perfs.end(), perf) == 0){
+            perfs.push_back(perf);
+        }
     }
 }
 void Scheduler::Init() {
@@ -88,6 +110,7 @@ void Scheduler::Init() {
                 break;
         }
     }
+   
 
     //turn on about 1/3 of the machines
     float frac = 1.0f/3.0f;
