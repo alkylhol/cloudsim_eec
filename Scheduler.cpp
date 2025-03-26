@@ -3,7 +3,7 @@
 //  CloudSim
 //
 //  Created by ELMOOTAZBELLAH ELNOZAHY on 10/20/24.
-// greedy
+// leveled
 
 #include "Scheduler.hpp"
 #include <bits/stdc++.h>
