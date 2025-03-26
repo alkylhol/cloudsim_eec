@@ -206,14 +206,15 @@ bool Scheduler::FindMachine(TaskId_t task_id, bool active) {
 void Scheduler::NewTask(Time_t now, TaskId_t task_id) {
     // Get the task parameters
     TaskInfo_t task = GetTaskInfo(task_id);
-    switch(task.priority){
-        case HIGH_PRIORITY:
+    switch(task.required_sla){
+        case SLA0:
+        case SLA1:
             high_pri.push_back(task_id);
             break;
-        case MID_PRIORITY:
+        case SLA2:
             mid_pri.push_back(task_id);
             break;
-        case LOW_PRIORITY:
+        case SLA3:
             low_pri.push_back(task_id);
             break;
     }
@@ -297,41 +298,28 @@ void Scheduler::TaskComplete(Time_t now, TaskId_t task_id) {
             break;
     }
     size_t i = 0;
-    size_t j = 0;
-
+    TaskId_t dummy = 4294967295;
+    TaskId_t min_task = dummy;
     sort(compat_machines.begin(), compat_machines.end(), comp);
-    size_t k;
-    for(i = 0; i < compat_machines.size(); i++) {
+    for(i = 0; i < compat_machines.size()/2; i++){
         if (Machine_GetInfo(compat_machines[i].id).memory_used > 0 && Machine_GetInfo(compat_machines[i].id).s_state == S0) {
-            for(j = 0; j < compat_machines[i].vms.size(); j++){
-                for(TaskId_t other_task : VM_GetInfo(compat_machines[i].vms[j]).active_tasks){
-                    for(k = compat_machines.size() - 1; k > i; k--){
-                        MachineInfo_t mk = Machine_GetInfo(compat_machines[k].id);
-                        TaskInfo_t ot = GetTaskInfo(other_task);
-                        if (mk.memory_used + ot.required_memory < mk.memory_size && mk.active_tasks < mk.num_cpus) {
-                            VM_RemoveTask(compat_machines[i].vms[j], other_task);
-                            size_t l;
-                            for(l = 0; l < compat_machines[k].vms.size(); l++){
-                                if(VM_GetInfo(compat_machines[k].vms[l]).vm_type == task.required_vm){
-                                    VM_AddTask(compat_machines[k].vms[l], other_task, ot.priority);
-                                }
-                            }
-                            if(l == compat_machines[k].vms.size()){
-                                // Machine_SetState(compat_machines[k].id, S0);
-                                
-                                compat_machines[k].vms.push_back(VM_Create(ot.required_vm, ot.required_cpu));
-                                SimOutput("That one", 0);
-                                VM_Attach(compat_machines[k].vms[l], compat_machines[k].id);
-                                VM_AddTask(compat_machines[k].vms[l], other_task, ot.priority);
-                            }
-                        }
+            for(VMId_t vm : compat_machines[i].vms){
+                for(TaskId_t t : VM_GetInfo(vm).active_tasks){
+                    if(min_task == dummy){
+                        min_task = t;
+                    } else {
+                        min_task = GetTaskInfo(min_task).required_memory < GetTaskInfo(t).required_memory ? min_task : t;
                     }
                 }
-                if (VM_GetInfo(compat_machines[i].vms[j]).active_tasks.empty()){
-                    compat_machines[i].vms.erase(compat_machines[i].vms.begin() + j);
-                }
+            }
+            if(min_task != dummy){
+                //found a task
+                break;
             }
         }
+    }
+    if(min_task != dummy){
+        NewTask(now, min_task);
     }
     SimOutput("Scheduler::TaskComplete(): Task " + to_string(task_id) + " is complete at " + to_string(now), 4);
 }
