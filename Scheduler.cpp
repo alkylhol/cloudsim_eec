@@ -3,7 +3,7 @@
 //  CloudSim
 //
 //  Created by ELMOOTAZBELLAH ELNOZAHY on 10/20/24.
-//
+// greedy
 
 #include "Scheduler.hpp"
 #include <bits/stdc++.h>
@@ -101,6 +101,13 @@ void Scheduler::MigrationComplete(Time_t time, VMId_t vm_id) {
     
 }
 
+bool dec_comp (MachineVMs a, MachineVMs b) {
+    MachineInfo_t a_info = Machine_GetInfo(a.id);
+    MachineInfo_t b_info = Machine_GetInfo(b.id);
+    float util_a = (a_info.memory_used * 1.0f) / (a_info.memory_size * 1.0f);
+    float util_b = (b_info.memory_used * 1.0f) / (b_info.memory_size * 1.0f);
+    return util_a > util_b;
+}
 bool Scheduler::FindMachine(TaskId_t task_id, bool active) {
     TaskInfo_t task = GetTaskInfo(task_id);
     vector<MachineVMs> compat_machines;
@@ -122,6 +129,7 @@ bool Scheduler::FindMachine(TaskId_t task_id, bool active) {
     size_t i = 0;
     for(i = 0; i < compat_machines.size(); i++) {
         //MachineVMs machine = compat_machines[i];
+        sort(compat_machines.begin(), compat_machines.end(), dec_comp);
         MachineInfo_t m_info = Machine_GetInfo(compat_machines[i].id);
         if (active && m_info.s_state != S0) {
             continue;
