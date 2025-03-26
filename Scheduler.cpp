@@ -183,8 +183,26 @@ bool Scheduler::FindMachine(TaskId_t task_id, bool active) {
     // for low machines, SLA2. if any SLA3 tasks exist, evict.
     // basically, on gpu machines, if GPU has equal SLA or higher than a non-gpu task, then evict. Assign to another machine and 
     // migrate to GPU machine on task completition
+    sort(compat_level.gpu.begin(), compat_level.gpu.end(), dec_comp);
+    sort(compat_level.high.begin(), compat_level.high.end(), dec_comp);
+    sort(compat_level.low.begin(), compat_level.low.end(), dec_comp);
 
-    
+
+    if(task.gpu_capable){
+        // scan through gpu machines to see find free one, or a non-gpu task with equal or lower SLA exists
+        bool found = false;
+        for(i = 0; i < compat_level.gpu.size(); i++){
+            MachineInfo_t m_info = Machine_GetInfo(compat_level.gpu[i].id);
+            if(m_info.)
+            for(VMId_t vm : compat_level.gpu[i].vms){
+                VMInfo_t vm_info = VM_GetInfo(vm);
+                for(TaskId_t tid : vm_info.active_tasks){
+                    TaskInfo_t tinfo = GetTaskInfo(tid);
+                    if()
+                }
+            }
+        }
+    }
     for(i = 0; i < compat_machines.size(); i++) {
         //MachineVMs machine = compat_machines[i];
         sort(compat_machines.begin(), compat_machines.end(), dec_comp);
