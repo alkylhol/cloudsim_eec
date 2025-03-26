@@ -189,14 +189,15 @@ bool Scheduler::FindMachine(TaskId_t task_id, bool active) {
 void Scheduler::NewTask(Time_t now, TaskId_t task_id) {
     // Get the task parameters
     TaskInfo_t task = GetTaskInfo(task_id);
-    switch(task.priority){
-        case HIGH_PRIORITY:
+    switch(task.required_sla){
+        case SLA0:
+        case SLA1:
             high_pri.push_back(task_id);
             break;
-        case MID_PRIORITY:
+        case SLA2:
             mid_pri.push_back(task_id);
             break;
-        case LOW_PRIORITY:
+        case SLA3:
             low_pri.push_back(task_id);
             break;
     }
