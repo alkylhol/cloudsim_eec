@@ -14,19 +14,11 @@ typedef struct {
     vector<VMId_t> vms;
 } MachineVMs;
 
-typedef struct {
-    vector<MachineVMs> arm;
-    vector<MachineVMs> power;
-    vector<MachineVMs> riscv;
-    vector<MachineVMs> x86;
-} machine_cpus;
 
 typedef struct{
-    vector<MachineVMs> high_gpu;
-    vector<MachineVMs> low_gpu;
+    vector<MachineVMs> gpu;
     vector<MachineVMs> high; //SLA0, SLA1
-    vector<MachineVMs> medium; //SLA2
-    vector<MachineVMs> low; //SLA3
+    vector<MachineVMs> low; //SLA2, SLA3
 } levels;
 
 typedef struct {
@@ -40,7 +32,13 @@ vector<TaskId_t> high_pri;
 vector<TaskId_t> mid_pri;
 vector<TaskId_t> low_pri;
 
-levels lev;
+typedef struct {
+    levels arm_levels;
+    levels power_levels;
+    levels riscv_levels;
+    levels x86_levels;
+} machine_cpus;
+
 static bool migrating = false;
 //static unsigned active_machines = 0;
 static machine_cpus mc;
@@ -59,7 +57,10 @@ void TurnOnFraction(float frac, vector<MachineVMs> arr){
     }
 }
 
-void SortMachines(vector<MachineVMs> arr){
+void SortMachines(vector<MachineVMs> arr , levels level){
+    if(arr.empty()){
+        return;
+    }
     vector<unsigned> perfs;
     for(MachineVMs mvm : arr){
         unsigned perf = Machine_GetInfo(mvm.id).performance[0];
@@ -73,9 +74,22 @@ void SortMachines(vector<MachineVMs> arr){
 
     for(MachineVMs mvm : arr){
         unsigned perf = Machine_GetInfo(mvm.id).performance[0];
-        if(count(perfs.begin(), perfs.end(), perf) == 0){
-            perfs.push_back(perf);
+        size_t i = 0;
+        for(i = 0; i < perfs.size(); i++){
+            if(perf == perfs[i]){
+                break;
+            }
         }
+        if(Machine_GetInfo(mvm.id).gpus){
+            level.gpu.push_back(mvm);
+        }
+        // no else, we can still use GPU machines for CPU task
+        if(i == perfs.size()-1 && i > 0){ // we put the lowest performing one, if there exists one
+            level.low.push_back(mvm);
+        } else {
+            level.high.push_back(mvm);
+        }
+
     }
 }
 void Scheduler::Init() {
@@ -91,33 +105,41 @@ void Scheduler::Init() {
     SimOutput("Scheduler::Init(): Initializing scheduler", 1);
     //check how many machines of each cpu type
     size_t i;
+    vector<MachineVMs> arm;
+    vector<MachineVMs> x86;
+    vector<MachineVMs> riscv;
+    vector<MachineVMs> power;
     for (i = 0; i < Machine_GetTotal(); i++) {
         MachineVMs machine;// = {MachineId_t(i), {}};
         machine.id = MachineId_t(i);
 
         switch(Machine_GetCPUType(MachineId_t(i))){
             case ARM:
-                mc.arm.push_back(machine);
+                arm.push_back(machine);
                 break;
             case X86:
-                mc.x86.push_back(machine);
+                x86.push_back(machine);
                 break;
             case RISCV:
-                mc.riscv.push_back(machine);
+                riscv.push_back(machine);
                 break;
             case POWER:
-                mc.power.push_back(machine); 
+                power.push_back(machine); 
                 break;
         }
     }
    
+    SortMachines(arm, mc.arm_levels);
+    SortMachines(x86, mc.x86_levels);
+    SortMachines(riscv, mc.riscv_levels);
+    SortMachines(power, mc.power_levels);
 
-    //turn on about 1/3 of the machines
-    float frac = 1.0f/3.0f;
-    TurnOnFraction(frac, mc.arm);
-    TurnOnFraction(frac, mc.x86);
-    TurnOnFraction(frac, mc.riscv); 
-    TurnOnFraction(frac, mc.power);
+    // //turn on about 1/3 of the machines
+    // float frac = 1.0f/3.0f;
+    // TurnOnFraction(frac, arm);
+    // TurnOnFraction(frac, x86);
+    // TurnOnFraction(frac, riscv); 
+    // TurnOnFraction(frac, power);
     
 
     //SimOutput("Scheduler::Init(): VM ids are " + to_string() + " ahd " + to_string(vms[1]), 3);
@@ -140,23 +162,26 @@ bool dec_comp (MachineVMs a, MachineVMs b) {
 }
 bool Scheduler::FindMachine(TaskId_t task_id, bool active) {
     TaskInfo_t task = GetTaskInfo(task_id);
-    vector<MachineVMs> compat_machines;
+    levels compat_level;
     switch(task.required_cpu){
         case ARM:
-            compat_machines = mc.arm;
+            compat_level = mc.arm_levels;
             break;
         case X86:
-            compat_machines = mc.x86;
+            compat_level = mc.x86_levels;
             break;
         case RISCV:
-            compat_machines = mc.riscv;
+            compat_level = mc.riscv_levels;
             break;
         case POWER:
-            compat_machines = mc.power;
+            compat_level = mc.power_levels;
             break;
     }
 
     size_t i = 0;
+    // policy: priority for high machines: SLA0, SLA1, SLA2. If high is gpu, then if task is GPU, if SLA > any other SLA, evict
+    // for low machines, SLA2. if any SLA3 tasks exist, evict.
+    // basically, on gpu machines, if GPU has equal SLA or higher, then evict. Otherwise, put on queue for GPU machine
     for(i = 0; i < compat_machines.size(); i++) {
         //MachineVMs machine = compat_machines[i];
         sort(compat_machines.begin(), compat_machines.end(), dec_comp);
