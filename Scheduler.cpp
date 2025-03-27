@@ -12,6 +12,7 @@
 typedef struct {
     MachineId_t id;
     vector<VMId_t> vms;
+    MachineState_t s;
 } MachineVMs;
 
 typedef struct {
@@ -40,12 +41,15 @@ void TurnOnFraction(float frac, vector<MachineVMs> arr){
     size_t i = 0;
     while(i*1.0f/arr.size() < frac){
         Machine_SetState(arr[i].id, S0);
+        arr[i].s = S0;
         i++;
         // machines.push_back(i);
         // active_machines++;
     }
     while(i < arr.size()){
-        Machine_SetState(arr[i].id, S0);
+        MachineState_t state_sleep = S3;
+        Machine_SetState(arr[i].id, state_sleep);
+        arr[i].s = state_sleep;
         i++;
     }
 }
@@ -127,14 +131,19 @@ bool Scheduler::FindMachine(TaskId_t task_id, bool active) {
     }
 
     size_t i = 0;
+
+    sort(compat_machines.begin(), compat_machines.end(), dec_comp);
     for(i = 0; i < compat_machines.size(); i++) {
         //MachineVMs machine = compat_machines[i];
-        sort(compat_machines.begin(), compat_machines.end(), dec_comp);
+        
         MachineInfo_t m_info = Machine_GetInfo(compat_machines[i].id);
-        if (active && m_info.s_state != S0) {
+        SimOutput("Machine " + to_string(m_info.machine_id) + " in state " + to_string(m_info.s_state) + " ", 0); 
+        SimOutput("Machine transitioning to " + to_string(compat_machines[i].s), 0); 
+
+        if (active && (m_info.s_state != S0 || m_info.s_state != compat_machines[i].s)) {
             continue;
         }
-        if (!active && m_info.s_state == S0) {
+        if (!active && (m_info.s_state == S0 && m_info.s_state == compat_machines[i].s)) {
             continue;
         }
         if (m_info.memory_used + task.required_memory < m_info.memory_size && m_info.active_tasks < m_info.num_cpus) {
@@ -168,6 +177,7 @@ bool Scheduler::FindMachine(TaskId_t task_id, bool active) {
                         pending[compat_machines[i].id] = tandm;
                     }
                     Machine_SetState(compat_machines[i].id, S0);
+                    compat_machines[i].s = S0;
                     // m_info.memory_used += task.required_memory;
                     // m_info.active_tasks ++;
                     //return false;
@@ -367,6 +377,7 @@ void Scheduler::TaskComplete(Time_t now, TaskId_t task_id) {
         }
     }
     SimOutput("Scheduler::TaskComplete(): Task " + to_string(task_id) + " is complete at " + to_string(now), 4);
+    SimOutput("Scheduler::TaskComplete(): Task " + to_string(task_id) + " is complete", 1);
 }
 
 // Public interface below
@@ -426,7 +437,11 @@ void SLAWarning(Time_t time, TaskId_t task_id) {
 
 void StateChangeComplete(Time_t time, MachineId_t machine_id) {
     //SimOutput(to_string(time), 0);
+    
     MachineInfo_t m_info = Machine_GetInfo(machine_id);
+    SimOutput("Machine "+ to_string(m_info.machine_id) + " in state " + to_string(m_info.s_state) + " ", 0); 
+    SimOutput("Machine has "+ to_string(m_info.active_tasks) + " tasks ", 0); 
+
     if(m_info.s_state == S0){
         if (pending.find(machine_id) != pending.end()) {
             //SimOutput("Here", 0);
