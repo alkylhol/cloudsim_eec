@@ -11,8 +11,8 @@
 
 typedef struct {
     MachineId_t id;
-    vector<VMId_t> vms;
     MachineState_t s;
+    vector<VMId_t> vms;
 } MachineVMs;
 
 typedef struct {
@@ -48,8 +48,8 @@ void TurnOnFraction(float frac, vector<MachineVMs> arr){
     }
     while(i < arr.size()){
         MachineState_t state_sleep = S3;
+        arr[i].s = S3;
         Machine_SetState(arr[i].id, state_sleep);
-        arr[i].s = state_sleep;
         i++;
     }
 }
@@ -69,29 +69,53 @@ void Scheduler::Init() {
     for (i = 0; i < Machine_GetTotal(); i++) {
         MachineVMs machine;// = {MachineId_t(i), {}};
         machine.id = MachineId_t(i);
-
+        machine.s = S0;
+        int arm_cnt = 0;
+        int x86_cnt = 0;
+        int riscv_cnt = 0;
+        int power_cnt = 0;
+        MachineState_t state_sleep = S4;
         switch(Machine_GetCPUType(MachineId_t(i))){
             case ARM:
+                if(arm_cnt > 5){
+                    machine.s = state_sleep;
+                    Machine_SetState(machine.id, state_sleep);
+                }
+                arm_cnt++;
                 mc.arm.push_back(machine);
                 break;
             case X86:
+                if(x86_cnt > 5){
+                    machine.s = state_sleep;
+                    Machine_SetState(machine.id, state_sleep);
+                }
+                x86_cnt++;
                 mc.x86.push_back(machine);
                 break;
             case RISCV:
+                if(riscv_cnt > 5){
+                    machine.s = state_sleep;
+                    Machine_SetState(machine.id, state_sleep);
+                }
+                riscv_cnt++;
                 mc.riscv.push_back(machine);
                 break;
             case POWER:
+                if(power_cnt > 5){
+                    machine.s = state_sleep;
+                    Machine_SetState(machine.id, state_sleep);
+                }
+                power_cnt++;
                 mc.power.push_back(machine); 
                 break;
         }
     }
 
-    //turn on about 1/3 of the machines
-    float frac = 1.0f/3.0f;
-    TurnOnFraction(frac, mc.arm);
-    TurnOnFraction(frac, mc.x86);
-    TurnOnFraction(frac, mc.riscv); 
-    TurnOnFraction(frac, mc.power);
+
+    // TurnOnFraction(frac, mc.arm);
+    // TurnOnFraction(frac, mc.x86);
+    // TurnOnFraction(frac, mc.riscv); 
+    // TurnOnFraction(frac, mc.power);
     
 
     //SimOutput("Scheduler::Init(): VM ids are " + to_string() + " ahd " + to_string(vms[1]), 3);
@@ -137,8 +161,8 @@ bool Scheduler::FindMachine(TaskId_t task_id, bool active) {
         //MachineVMs machine = compat_machines[i];
         
         MachineInfo_t m_info = Machine_GetInfo(compat_machines[i].id);
-        SimOutput("Machine " + to_string(m_info.machine_id) + " in state " + to_string(m_info.s_state) + " ", 0); 
-        SimOutput("Machine transitioning to " + to_string(compat_machines[i].s), 0); 
+        SimOutput("Machine " + to_string(m_info.machine_id) + " in state " + to_string(m_info.s_state) + " ", 4); 
+        SimOutput("Machine transitioning to " + to_string((size_t)compat_machines[i].s), 4); 
 
         if (active && (m_info.s_state != S0 || m_info.s_state != compat_machines[i].s)) {
             continue;
@@ -154,39 +178,38 @@ bool Scheduler::FindMachine(TaskId_t task_id, bool active) {
                     && pending[compat_machines[i].id].tasks.size() < m_info.num_cpus 
                     && pending[compat_machines[i].id].memory_used + task.required_memory < m_info.memory_size);
             if(!allowed) continue;
-            size_t j = 0;
-            for(j = 0; j < compat_machines[i].vms.size(); j++){
-                if(VM_GetInfo(compat_machines[i].vms[j]).vm_type == task.required_vm){
-                    VM_AddTask(compat_machines[i].vms[j], task_id, task.priority);
-                    return true;
-                }
-            }
-            if(j == compat_machines[i].vms.size()){
-
-                if(!active){
-                    if (pending.find(compat_machines[i].id) != pending.end()) {
-                        //exists
-                        pending[compat_machines[i].id].tasks.push_back(task_id);
-                        pending[compat_machines[i].id].memory_used += task.required_memory;
-                    } else {
-                        vector<TaskId_t> this_task;
-                        this_task.push_back(task_id);
-                        tasks_and_memory tandm;
-                        tandm.tasks = this_task;
-                        tandm.memory_used = task.required_memory;
-                        pending[compat_machines[i].id] = tandm;
-                    }
-                    Machine_SetState(compat_machines[i].id, S0);
-                    compat_machines[i].s = S0;
-                    // m_info.memory_used += task.required_memory;
-                    // m_info.active_tasks ++;
-                    //return false;
+            if(!active){
+                if (pending.find(compat_machines[i].id) != pending.end()) {
+                    //exists
+                    pending[compat_machines[i].id].tasks.push_back(task_id);
+                    pending[compat_machines[i].id].memory_used += task.required_memory;
                 } else {
-                    compat_machines[i].vms.push_back(VM_Create(task.required_vm, task.required_cpu));
-                    //SimOutput("That one", 0);
-                    VM_Attach(compat_machines[i].vms[j], compat_machines[i].id);
-                    VM_AddTask(compat_machines[i].vms[j], task_id, task.priority);
+                    vector<TaskId_t> this_task;
+                    this_task.push_back(task_id);
+                    tasks_and_memory tandm;
+                    tandm.tasks = this_task;
+                    tandm.memory_used = task.required_memory;
+                    pending[compat_machines[i].id] = tandm;
                 }
+                Machine_SetState(compat_machines[i].id, S0);
+                compat_machines[i].s = S0;
+                // m_info.memory_used += task.required_memory;
+            }
+            else {
+                size_t j = 0;
+                for(j = 0; j < compat_machines[i].vms.size(); j++){
+                    if(VM_GetInfo(compat_machines[i].vms[j]).vm_type == task.required_vm){
+                        VM_AddTask(compat_machines[i].vms[j], task_id, task.priority);
+                        return true;
+                    }
+                }
+                if(j == compat_machines[i].vms.size()){
+                        compat_machines[i].vms.push_back(VM_Create(task.required_vm, task.required_cpu));
+                        //SimOutput("That one", 0);
+                        VM_Attach(compat_machines[i].vms[j], compat_machines[i].id);
+                        VM_AddTask(compat_machines[i].vms[j], task_id, task.priority);
+            }
+            
                 // compat_machines[i].vms.push_back(VM_Create(task.required_vm, task.required_cpu));
                 // VM_Attach(compat_machines[i].vms[j], compat_machines[i].id);
                 // VM_AddTask(compat_machines[i].vms[j], task_id, task.priority);
@@ -363,7 +386,7 @@ void Scheduler::TaskComplete(Time_t now, TaskId_t task_id) {
                                 // Machine_SetState(compat_machines[k].id, S0);
                                 
                                 compat_machines[k].vms.push_back(VM_Create(ot.required_vm, ot.required_cpu));
-                                SimOutput("That one", 0);
+                                SimOutput("That one", 4);
                                 VM_Attach(compat_machines[k].vms[l], compat_machines[k].id);
                                 VM_AddTask(compat_machines[k].vms[l], other_task, ot.priority);
                             }
@@ -377,7 +400,7 @@ void Scheduler::TaskComplete(Time_t now, TaskId_t task_id) {
         }
     }
     SimOutput("Scheduler::TaskComplete(): Task " + to_string(task_id) + " is complete at " + to_string(now), 4);
-    SimOutput("Scheduler::TaskComplete(): Task " + to_string(task_id) + " is complete", 1);
+    SimOutput("Scheduler::TaskComplete(): Task " + to_string(task_id) + " is complete", 4);
 }
 
 // Public interface below
@@ -439,8 +462,8 @@ void StateChangeComplete(Time_t time, MachineId_t machine_id) {
     //SimOutput(to_string(time), 0);
     
     MachineInfo_t m_info = Machine_GetInfo(machine_id);
-    SimOutput("Machine "+ to_string(m_info.machine_id) + " in state " + to_string(m_info.s_state) + " ", 0); 
-    SimOutput("Machine has "+ to_string(m_info.active_tasks) + " tasks ", 0); 
+    SimOutput("Machine "+ to_string(m_info.machine_id) + " in state " + to_string(m_info.s_state) + " ", 4); 
+    SimOutput("Machine has "+ to_string(m_info.active_tasks) + " tasks ", 4); 
 
     if(m_info.s_state == S0){
         if (pending.find(machine_id) != pending.end()) {
