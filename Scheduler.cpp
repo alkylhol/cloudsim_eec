@@ -75,7 +75,7 @@ void Scheduler::Init() {
         machine.id = MachineId_t(i);
         machine.s = S0;
         MachineState_t state_sleep = S4;
-        size_t machine_cnt = 24;
+        size_t machine_cnt = 100;
         switch(Machine_GetCPUType(MachineId_t(i))){
             case ARM:
                 if(arm_cnt > machine_cnt){
@@ -95,7 +95,7 @@ void Scheduler::Init() {
                 break;
             case RISCV:
                 if(riscv_cnt > machine_cnt){
-                    SimOutput("Reached riscv here", 0);
+                    SimOutput("Reached riscv here", 4);
 
                     machine.s = state_sleep;
                     Machine_SetState(machine.id, state_sleep);
@@ -105,7 +105,7 @@ void Scheduler::Init() {
                 break;
             case POWER:
                 if(power_cnt > machine_cnt){
-                    SimOutput("Reached power here", 0);
+                    SimOutput("Reached power here", 4);
                     machine.s = state_sleep;
                     Machine_SetState(machine.id, state_sleep);
                 }
@@ -173,6 +173,10 @@ bool Scheduler::FindMachine(TaskId_t task_id, bool active) {
         if (!active && (m_info.s_state == S0 && m_info.s_state == compat_machines[i].s)) {
             continue;
         }
+        // if (active && !(m_info.s_state == S0 && compat_machines[i].s == S0)) {
+        //     continue;
+        // }
+
         // if (!(active && compat_machines[i].s == S0)) {
         //     continue;
         // }
@@ -212,19 +216,19 @@ bool Scheduler::FindMachine(TaskId_t task_id, bool active) {
                 size_t j = 0;
                 for(j = 0; j < compat_machines[i].vms.size(); j++){
                     if(VM_GetInfo(compat_machines[i].vms[j]).vm_type == task.required_vm){
-                        SimOutput("Adding to ID " + to_string(compat_machines[i].id), 0); 
+                        SimOutput("Adding to ID " + to_string(compat_machines[i].id), 4); 
                         VM_AddTask(compat_machines[i].vms[j], task_id, task.priority);
                         return true;
                     }
                 }
                 if(j == compat_machines[i].vms.size()){
                         compat_machines[i].vms.push_back(VM_Create(task.required_vm, task.required_cpu));
-                        SimOutput("Adding to ID " + to_string(compat_machines[i].id), 0); 
+                        SimOutput("Adding to ID " + to_string(compat_machines[i].id), 4); 
 
                         //SimOutput("That one", 0);
                         VM_Attach(compat_machines[i].vms[j], compat_machines[i].id);
                         VM_AddTask(compat_machines[i].vms[j], task_id, task.priority);
-            }
+                }
             
                 // compat_machines[i].vms.push_back(VM_Create(task.required_vm, task.required_cpu));
                 // VM_Attach(compat_machines[i].vms[j], compat_machines[i].id);
@@ -441,7 +445,7 @@ void HandleTaskCompletion(Time_t time, TaskId_t task_id) {
 
 void MemoryWarning(Time_t time, MachineId_t machine_id) {
     // The simulator is alerting you that machine identified by machine_id is overcommitted
-    SimOutput("MemoryWarning(): Overflow at " + to_string(machine_id) + " was detected at time " + to_string(time), 0);
+    SimOutput("MemoryWarning(): Overflow at " + to_string(machine_id) + " was detected at time " + to_string(time), 4);
 }
 
 void MigrationDone(Time_t time, VMId_t vm_id) {
@@ -479,10 +483,9 @@ void StateChangeComplete(Time_t time, MachineId_t machine_id) {
     //SimOutput(to_string(time), 0);
     
     MachineInfo_t m_info = Machine_GetInfo(machine_id);
-    SimOutput("Complete: Machine "+ to_string(m_info.machine_id) + " in state " + to_string(m_info.s_state) + " ", 0); 
-    SimOutput("Complete: Machine has "+ to_string(m_info.active_tasks) + " tasks ", 0); 
+    SimOutput("Complete: Machine "+ to_string(m_info.machine_id) + " in state " + to_string(m_info.s_state) + " ", 4); 
+    SimOutput("Complete: Machine has "+ to_string(m_info.active_tasks) + " tasks ", 4); 
     if (m_info.s_state != S0 && pending.find(machine_id) != pending.end()) {
-        if(!pending[machine_id].tasks.empty()){
             vector<MachineVMs> compat_machines;
             MachineVMs this_m;
             switch (m_info.cpu) {
@@ -507,8 +510,7 @@ void StateChangeComplete(Time_t time, MachineId_t machine_id) {
                 }
             }
             Machine_SetState(machine_id, S0);
-            compat_machines[i].s = S0;
-        }
+            this_m.s = S0;
     }
     if(m_info.s_state == S0){
         if (pending.find(machine_id) != pending.end()) {
@@ -550,6 +552,7 @@ void StateChangeComplete(Time_t time, MachineId_t machine_id) {
                 for(j = 0; j < this_m.vms.size(); j++){
                     if(VM_GetInfo(this_m.vms[j]).vm_type == task.required_vm){
                         VM_AddTask(this_m.vms[j], tasks[0], task.priority);
+                        break;
                     }
                 }
                 if(j == this_m.vms.size()){                
