@@ -75,7 +75,7 @@ void Scheduler::Init() {
         machine.id = MachineId_t(i);
         machine.s = S0;
         MachineState_t state_sleep = S4;
-        size_t machine_cnt = 100;
+        size_t machine_cnt = 14;
         switch(Machine_GetCPUType(MachineId_t(i))){
             case ARM:
                 if(arm_cnt > machine_cnt){
@@ -420,7 +420,7 @@ void Scheduler::TaskComplete(Time_t now, TaskId_t task_id) {
             }
         }
     }
-    SimOutput("Scheduler::TaskComplete(): Task " + to_string(task_id) + " is complete at " + to_string(now), 4);
+    SimOutput("Scheduler::TaskComplete(): Task " + to_string(task_id) + " is complete at " + to_string(now), 0);
     SimOutput("Scheduler::TaskComplete(): Task " + to_string(task_id) + " is complete", 4);
 }
 
@@ -445,7 +445,7 @@ void HandleTaskCompletion(Time_t time, TaskId_t task_id) {
 
 void MemoryWarning(Time_t time, MachineId_t machine_id) {
     // The simulator is alerting you that machine identified by machine_id is overcommitted
-    SimOutput("MemoryWarning(): Overflow at " + to_string(machine_id) + " was detected at time " + to_string(time), 4);
+    SimOutput("MemoryWarning(): Overflow at " + to_string(machine_id) + " was detected at time " + to_string(time), 0);
 }
 
 void MigrationDone(Time_t time, VMId_t vm_id) {
@@ -483,8 +483,8 @@ void StateChangeComplete(Time_t time, MachineId_t machine_id) {
     //SimOutput(to_string(time), 0);
     
     MachineInfo_t m_info = Machine_GetInfo(machine_id);
-    SimOutput("Complete: Machine "+ to_string(m_info.machine_id) + " in state " + to_string(m_info.s_state) + " ", 4); 
-    SimOutput("Complete: Machine has "+ to_string(m_info.active_tasks) + " tasks ", 4); 
+    SimOutput("Complete: Machine "+ to_string(m_info.machine_id) + " in state " + to_string(m_info.s_state) + " ", 0); 
+    SimOutput("Complete: Machine has "+ to_string(m_info.active_tasks) + " tasks ", 0); 
     if (m_info.s_state != S0 && pending.find(machine_id) != pending.end()) {
             vector<MachineVMs> compat_machines;
             MachineVMs this_m;
