@@ -25,34 +25,38 @@ typedef struct {
     vector<TaskId_t> tasks;
     size_t memory_used;
 } tasks_and_memory;
-unordered_map<MachineId_t, tasks_and_memory> pending;
+static unordered_map<MachineId_t, tasks_and_memory> pending;
 
 
-vector<TaskId_t> high_pri;
-vector<TaskId_t> mid_pri;
-vector<TaskId_t> low_pri;
+static vector<TaskId_t> high_pri;
+static vector<TaskId_t> mid_pri;
+static vector<TaskId_t> low_pri;
 
 
 static bool migrating = false;
 //static unsigned active_machines = 0;
 static machine_cpus mc;
 
-void TurnOnFraction(float frac, vector<MachineVMs> arr){
-    size_t i = 0;
-    while(i*1.0f/arr.size() < frac){
-        Machine_SetState(arr[i].id, S0);
-        arr[i].s = S0;
-        i++;
-        // machines.push_back(i);
-        // active_machines++;
-    }
-    while(i < arr.size()){
-        MachineState_t state_sleep = S3;
-        arr[i].s = S3;
-        Machine_SetState(arr[i].id, state_sleep);
-        i++;
-    }
-}
+// void TurnOnFraction(float frac, vector<MachineVMs> arr){
+//     size_t i = 0;
+//     while(i*1.0f/arr.size() < frac){
+//         Machine_SetState(arr[i].id, S0);
+//         arr[i].s = S0;
+//         i++;
+//         // machines.push_back(i);
+//         // active_machines++;
+//     }
+//     while(i < arr.size()){
+//         MachineState_t state_sleep = S3;
+//         arr[i].s = S3;
+//         Machine_SetState(arr[i].id, state_sleep);
+//         i++;
+//     }
+// }     
+static size_t arm_cnt = 0;
+static size_t x86_cnt = 0;
+static size_t riscv_cnt = 0;
+static size_t power_cnt = 0;
 void Scheduler::Init() {
     // Find the parameters of the clusters
     // Get the total number of machines
@@ -70,14 +74,11 @@ void Scheduler::Init() {
         MachineVMs machine;// = {MachineId_t(i), {}};
         machine.id = MachineId_t(i);
         machine.s = S0;
-        int arm_cnt = 0;
-        int x86_cnt = 0;
-        int riscv_cnt = 0;
-        int power_cnt = 0;
         MachineState_t state_sleep = S4;
+        size_t machine_cnt = 24;
         switch(Machine_GetCPUType(MachineId_t(i))){
             case ARM:
-                if(arm_cnt > 5){
+                if(arm_cnt > machine_cnt){
                     machine.s = state_sleep;
                     Machine_SetState(machine.id, state_sleep);
                 }
@@ -85,7 +86,7 @@ void Scheduler::Init() {
                 mc.arm.push_back(machine);
                 break;
             case X86:
-                if(x86_cnt > 5){
+                if(x86_cnt > machine_cnt){
                     machine.s = state_sleep;
                     Machine_SetState(machine.id, state_sleep);
                 }
@@ -93,7 +94,9 @@ void Scheduler::Init() {
                 mc.x86.push_back(machine);
                 break;
             case RISCV:
-                if(riscv_cnt > 5){
+                if(riscv_cnt > machine_cnt){
+                    SimOutput("Reached riscv here", 0);
+
                     machine.s = state_sleep;
                     Machine_SetState(machine.id, state_sleep);
                 }
@@ -101,7 +104,8 @@ void Scheduler::Init() {
                 mc.riscv.push_back(machine);
                 break;
             case POWER:
-                if(power_cnt > 5){
+                if(power_cnt > machine_cnt){
+                    SimOutput("Reached power here", 0);
                     machine.s = state_sleep;
                     Machine_SetState(machine.id, state_sleep);
                 }
@@ -155,14 +159,13 @@ bool Scheduler::FindMachine(TaskId_t task_id, bool active) {
     }
 
     size_t i = 0;
-
     sort(compat_machines.begin(), compat_machines.end(), dec_comp);
     for(i = 0; i < compat_machines.size(); i++) {
         //MachineVMs machine = compat_machines[i];
         
         MachineInfo_t m_info = Machine_GetInfo(compat_machines[i].id);
-        SimOutput("Machine " + to_string(m_info.machine_id) + " in state " + to_string(m_info.s_state) + " ", 4); 
-        SimOutput("Machine transitioning to " + to_string((size_t)compat_machines[i].s), 4); 
+        SimOutput("FindMachine " + to_string(m_info.machine_id) + " in state " + to_string(m_info.s_state) + "", 4); 
+        SimOutput("FindMachine transitioning to " + to_string((size_t)compat_machines[i].s), 4); 
 
         if (active && (m_info.s_state != S0 || m_info.s_state != compat_machines[i].s)) {
             continue;
@@ -170,7 +173,15 @@ bool Scheduler::FindMachine(TaskId_t task_id, bool active) {
         if (!active && (m_info.s_state == S0 && m_info.s_state == compat_machines[i].s)) {
             continue;
         }
+        // if (!(active && compat_machines[i].s == S0)) {
+        //     continue;
+        // }
+        // if (!(!active && compat_machines[i].s == S0)) {
+        //     continue;
+        // }
         if (m_info.memory_used + task.required_memory < m_info.memory_size && m_info.active_tasks < m_info.num_cpus) {
+            SimOutput("Active is " + to_string(active) + ", machine.s is " + to_string((size_t)compat_machines[i].s), 4); 
+            SimOutput("Machine ID is" + to_string(compat_machines[i].id), 4); 
             bool allowed = active;
             allowed = allowed || (!active && pending.find(compat_machines[i].id) == pending.end());
             allowed = allowed || (!active 
@@ -191,20 +202,25 @@ bool Scheduler::FindMachine(TaskId_t task_id, bool active) {
                     tandm.memory_used = task.required_memory;
                     pending[compat_machines[i].id] = tandm;
                 }
-                Machine_SetState(compat_machines[i].id, S0);
-                compat_machines[i].s = S0;
+                if(compat_machines[i].s != S0 && m_info.s_state == compat_machines[i].s){
+                    Machine_SetState(compat_machines[i].id, S0);
+                    compat_machines[i].s = S0;
+                }
                 // m_info.memory_used += task.required_memory;
             }
             else {
                 size_t j = 0;
                 for(j = 0; j < compat_machines[i].vms.size(); j++){
                     if(VM_GetInfo(compat_machines[i].vms[j]).vm_type == task.required_vm){
+                        SimOutput("Adding to ID " + to_string(compat_machines[i].id), 0); 
                         VM_AddTask(compat_machines[i].vms[j], task_id, task.priority);
                         return true;
                     }
                 }
                 if(j == compat_machines[i].vms.size()){
                         compat_machines[i].vms.push_back(VM_Create(task.required_vm, task.required_cpu));
+                        SimOutput("Adding to ID " + to_string(compat_machines[i].id), 0); 
+
                         //SimOutput("That one", 0);
                         VM_Attach(compat_machines[i].vms[j], compat_machines[i].id);
                         VM_AddTask(compat_machines[i].vms[j], task_id, task.priority);
@@ -293,6 +309,7 @@ void Scheduler::PeriodicCheck(Time_t now) {
     // SchedulerCheck is called periodically by the simulator to allow you to monitor, make decisions, adjustments, etc.
     // Unlike the other invocations of the scheduler, this one doesn't report any specific event
     // Recommendation: Take advantage of this function to do some monitoring and adjustments as necessary
+    
     bool done = false;
     while(!done && !high_pri.empty()){
         if(!FindMachine(high_pri[0], true)){
@@ -368,7 +385,7 @@ void Scheduler::TaskComplete(Time_t now, TaskId_t task_id) {
     sort(compat_machines.begin(), compat_machines.end(), comp);
     size_t k;
     for(i = 0; i < compat_machines.size(); i++) {
-        if (Machine_GetInfo(compat_machines[i].id).memory_used > 0 && Machine_GetInfo(compat_machines[i].id).s_state == S0) {
+        if (Machine_GetInfo(compat_machines[i].id).memory_used > 0 && Machine_GetInfo(compat_machines[i].id).s_state == S0 && compat_machines[i].s == S0) {
             for(j = 0; j < compat_machines[i].vms.size(); j++){
                 for(TaskId_t other_task : VM_GetInfo(compat_machines[i].vms[j]).active_tasks){
                     for(k = compat_machines.size() - 1; k > i; k--){
@@ -462,9 +479,37 @@ void StateChangeComplete(Time_t time, MachineId_t machine_id) {
     //SimOutput(to_string(time), 0);
     
     MachineInfo_t m_info = Machine_GetInfo(machine_id);
-    SimOutput("Machine "+ to_string(m_info.machine_id) + " in state " + to_string(m_info.s_state) + " ", 4); 
-    SimOutput("Machine has "+ to_string(m_info.active_tasks) + " tasks ", 4); 
-
+    SimOutput("Complete: Machine "+ to_string(m_info.machine_id) + " in state " + to_string(m_info.s_state) + " ", 0); 
+    SimOutput("Complete: Machine has "+ to_string(m_info.active_tasks) + " tasks ", 0); 
+    if (m_info.s_state != S0 && pending.find(machine_id) != pending.end()) {
+        if(!pending[machine_id].tasks.empty()){
+            vector<MachineVMs> compat_machines;
+            MachineVMs this_m;
+            switch (m_info.cpu) {
+                case ARM:
+                    compat_machines = mc.arm;
+                    break;
+                case X86:
+                    compat_machines = mc.x86;
+                    break;
+                case RISCV:
+                    compat_machines = mc.riscv;
+                    break;
+                case POWER:
+                    compat_machines = mc.power;
+                    break;
+            }
+            size_t i = 0;
+            for(i = 0; i < compat_machines.size(); i++){
+                if(compat_machines[i].id == machine_id){
+                    this_m = compat_machines[i];
+                    break;
+                }
+            }
+            Machine_SetState(machine_id, S0);
+            compat_machines[i].s = S0;
+        }
+    }
     if(m_info.s_state == S0){
         if (pending.find(machine_id) != pending.end()) {
             //SimOutput("Here", 0);
