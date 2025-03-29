@@ -32,7 +32,8 @@ static vector<TaskId_t> high_pri;
 static vector<TaskId_t> mid_pri;
 static vector<TaskId_t> low_pri;
 
-
+static int tasks_completed;
+// static int tasks_added;
 static bool migrating = false;
 //static unsigned active_machines = 0;
 static machine_cpus mc;
@@ -74,8 +75,8 @@ void Scheduler::Init() {
         MachineVMs machine;// = {MachineId_t(i), {}};
         machine.id = MachineId_t(i);
         machine.s = S0;
-        MachineState_t state_sleep = S4;
-        size_t machine_cnt = 14;
+        MachineState_t state_sleep = S3;
+        size_t machine_cnt = 1;
         switch(Machine_GetCPUType(MachineId_t(i))){
             case ARM:
                 if(arm_cnt > machine_cnt){
@@ -95,8 +96,6 @@ void Scheduler::Init() {
                 break;
             case RISCV:
                 if(riscv_cnt > machine_cnt){
-                    SimOutput("Reached riscv here", 4);
-
                     machine.s = state_sleep;
                     Machine_SetState(machine.id, state_sleep);
                 }
@@ -105,7 +104,6 @@ void Scheduler::Init() {
                 break;
             case POWER:
                 if(power_cnt > machine_cnt){
-                    SimOutput("Reached power here", 4);
                     machine.s = state_sleep;
                     Machine_SetState(machine.id, state_sleep);
                 }
@@ -142,102 +140,122 @@ bool dec_comp (MachineVMs a, MachineVMs b) {
 }
 bool Scheduler::FindMachine(TaskId_t task_id, bool active) {
     TaskInfo_t task = GetTaskInfo(task_id);
-    vector<MachineVMs> compat_machines;
+    vector<MachineVMs>* compat_machines = nullptr;
+
     switch(task.required_cpu){
         case ARM:
-            compat_machines = mc.arm;
+            compat_machines = &mc.arm;
             break;
         case X86:
-            compat_machines = mc.x86;
+            compat_machines = &mc.x86;
             break;
         case RISCV:
-            compat_machines = mc.riscv;
+            compat_machines = &mc.riscv;
             break;
         case POWER:
-            compat_machines = mc.power;
+            compat_machines = &mc.power;
             break;
     }
 
+    if (!compat_machines) return false;
+
     size_t i = 0;
-    sort(compat_machines.begin(), compat_machines.end(), dec_comp);
-    for(i = 0; i < compat_machines.size(); i++) {
-        //MachineVMs machine = compat_machines[i];
-        
-        MachineInfo_t m_info = Machine_GetInfo(compat_machines[i].id);
-        SimOutput("FindMachine " + to_string(m_info.machine_id) + " in state " + to_string(m_info.s_state) + "", 4); 
-        SimOutput("FindMachine transitioning to " + to_string((size_t)compat_machines[i].s), 4); 
+    sort(compat_machines->begin(), compat_machines->end(), dec_comp);
+    
+    for (i = 0; i < compat_machines->size(); i++) {
+        MachineVMs& machine = (*compat_machines)[i];  // cleaner access
+        MachineInfo_t m_info = Machine_GetInfo(machine.id);
 
-        if (active && (m_info.s_state != S0 || m_info.s_state != compat_machines[i].s)) {
+        SimOutput("FindMachine " + to_string(m_info.machine_id) + " in state " + to_string(m_info.s_state), 4); 
+        SimOutput("FindMachine transitioning to " + to_string((size_t)machine.s), 4); 
+
+        if (active && (m_info.s_state != S0 || m_info.s_state != machine.s)) {
             continue;
         }
-        if (!active && (m_info.s_state == S0 && m_info.s_state == compat_machines[i].s)) {
+        if (!active && (m_info.s_state == S0 && m_info.s_state == machine.s)) {
             continue;
         }
-        // if (active && !(m_info.s_state == S0 && compat_machines[i].s == S0)) {
-        //     continue;
-        // }
 
-        // if (!(active && compat_machines[i].s == S0)) {
-        //     continue;
-        // }
-        // if (!(!active && compat_machines[i].s == S0)) {
-        //     continue;
-        // }
         if (m_info.memory_used + task.required_memory < m_info.memory_size && m_info.active_tasks < m_info.num_cpus) {
-            SimOutput("Active is " + to_string(active) + ", machine.s is " + to_string((size_t)compat_machines[i].s), 4); 
-            SimOutput("Machine ID is" + to_string(compat_machines[i].id), 4); 
             bool allowed = active;
-            allowed = allowed || (!active && pending.find(compat_machines[i].id) == pending.end());
+            allowed = allowed || (!active && pending.find(machine.id) == pending.end());
             allowed = allowed || (!active 
-                    && pending.find(compat_machines[i].id) != pending.end() 
-                    && pending[compat_machines[i].id].tasks.size() < m_info.num_cpus 
-                    && pending[compat_machines[i].id].memory_used + task.required_memory < m_info.memory_size);
-            if(!allowed) continue;
-            if(!active){
-                if (pending.find(compat_machines[i].id) != pending.end()) {
-                    //exists
-                    pending[compat_machines[i].id].tasks.push_back(task_id);
-                    pending[compat_machines[i].id].memory_used += task.required_memory;
+                && pending.find(machine.id) != pending.end() 
+                && pending[machine.id].tasks.size() < m_info.num_cpus 
+                && pending[machine.id].memory_used + task.required_memory < m_info.memory_size);
+
+            if (!allowed) continue;
+
+            if (!active) {
+                if (pending.find(machine.id) != pending.end()) {
+                    pending[machine.id].tasks.push_back(task_id);
+                    pending[machine.id].memory_used += task.required_memory;
                 } else {
-                    vector<TaskId_t> this_task;
-                    this_task.push_back(task_id);
+                    vector<TaskId_t> this_task = {task_id};
                     tasks_and_memory tandm;
                     tandm.tasks = this_task;
                     tandm.memory_used = task.required_memory;
-                    pending[compat_machines[i].id] = tandm;
+                    pending[machine.id] = tandm;
                 }
-                if(compat_machines[i].s != S0 && m_info.s_state == compat_machines[i].s){
-                    Machine_SetState(compat_machines[i].id, S0);
-                    compat_machines[i].s = S0;
+
+                if (machine.s != S0 && m_info.s_state == machine.s) {
+                    machine.s = S0;
+                    Machine_SetState(machine.id, S0);
                 }
-                // m_info.memory_used += task.required_memory;
-            }
-            else {
+            } else {
                 size_t j = 0;
-                for(j = 0; j < compat_machines[i].vms.size(); j++){
-                    if(VM_GetInfo(compat_machines[i].vms[j]).vm_type == task.required_vm){
-                        SimOutput("Adding to ID " + to_string(compat_machines[i].id), 4); 
-                        VM_AddTask(compat_machines[i].vms[j], task_id, task.priority);
+                for (j = 0; j < machine.vms.size(); j++) {
+                    if (VM_GetInfo(machine.vms[j]).vm_type == task.required_vm) {
+                        SimOutput("Adding to ID " + to_string(machine.id), 4); 
+                        VM_AddTask(machine.vms[j], task_id, task.priority);
                         return true;
                     }
                 }
-                if(j == compat_machines[i].vms.size()){
-                        compat_machines[i].vms.push_back(VM_Create(task.required_vm, task.required_cpu));
-                        SimOutput("Adding to ID " + to_string(compat_machines[i].id), 4); 
 
-                        //SimOutput("That one", 0);
-                        VM_Attach(compat_machines[i].vms[j], compat_machines[i].id);
-                        VM_AddTask(compat_machines[i].vms[j], task_id, task.priority);
+                if (j == machine.vms.size()) {
+                    machine.vms.push_back(VM_Create(task.required_vm, task.required_cpu));
+                    SimOutput("Adding to ID " + to_string(machine.id), 4); 
+                    VM_Attach(machine.vms[j], machine.id);
+                    VM_AddTask(machine.vms[j], task_id, task.priority);
                 }
-            
-                // compat_machines[i].vms.push_back(VM_Create(task.required_vm, task.required_cpu));
-                // VM_Attach(compat_machines[i].vms[j], compat_machines[i].id);
-                // VM_AddTask(compat_machines[i].vms[j], task_id, task.priority);
             }
+
             return true;
         }
     }   
+
     return false;
+}
+
+void Scheduler::AssignTasks(){
+    bool done = false;
+    while(!done && !high_pri.empty()){
+        if(!FindMachine(high_pri[0], true)){
+            if (!FindMachine(high_pri[0], false)){
+                done = true;
+                break;
+            }
+        }
+        high_pri.erase(high_pri.begin());
+    }
+    while(!done && !mid_pri.empty()){
+        if(!FindMachine(mid_pri[0], true)){
+            if (!FindMachine(mid_pri[0], false)){
+                done = true;
+                break;
+            }
+        }
+        mid_pri.erase(mid_pri.begin());
+    }
+    while(!done && !low_pri.empty()){
+        if(!FindMachine(low_pri[0], true)){
+            if (!FindMachine(low_pri[0], false)){
+                done = true;
+                break;
+            }
+        }
+        low_pri.erase(low_pri.begin());
+    }
 }
 void Scheduler::NewTask(Time_t now, TaskId_t task_id) {
     // Get the task parameters
@@ -254,35 +272,8 @@ void Scheduler::NewTask(Time_t now, TaskId_t task_id) {
             low_pri.push_back(task_id);
             break;
     }
+    AssignTasks();
 
-    // bool done = false;
-    // while(!done && !high_pri.empty()){
-    //     if(!FindMachine(high_pri[0], true)){
-    //         if (!FindMachine(high_pri[0], false)){
-    //             done = true;
-    //             break;
-    //         }
-    //     }
-    //     high_pri.erase(high_pri.begin());
-    // }
-    // while(!done && !mid_pri.empty()){
-    //     if(!FindMachine(mid_pri[0], true)){
-    //         if (!FindMachine(mid_pri[0], false)){
-    //             done = true;
-    //             break;
-    //         }
-    //     }
-    //     mid_pri.erase(mid_pri.begin());
-    // }
-    // while(!done && !low_pri.empty()){
-    //     if(!FindMachine(low_pri[0], true)){
-    //         if (!FindMachine(low_pri[0], false)){
-    //             done = true;
-    //             break;
-    //         }
-    //     }
-    //     low_pri.erase(low_pri.begin());
-    // }
 
     // if(!FindMachine(task_id, true)){
     //     if (!FindMachine(task_id, false)){
@@ -313,36 +304,11 @@ void Scheduler::PeriodicCheck(Time_t now) {
     // SchedulerCheck is called periodically by the simulator to allow you to monitor, make decisions, adjustments, etc.
     // Unlike the other invocations of the scheduler, this one doesn't report any specific event
     // Recommendation: Take advantage of this function to do some monitoring and adjustments as necessary
-    
-    bool done = false;
-    while(!done && !high_pri.empty()){
-        if(!FindMachine(high_pri[0], true)){
-            if (!FindMachine(high_pri[0], false)){
-                done = true;
-                break;
-            }
-        }
-        high_pri.erase(high_pri.begin());
-        // if (FindMachine(high_pri[0], true) || FindMachine(high_pri[0], false))
+    if((!high_pri.empty() || !mid_pri.empty() || !low_pri.empty())){
+        SimOutput("Still some left", 4 );
     }
-    while(!done && !mid_pri.empty()){
-        if(!FindMachine(mid_pri[0], true)){
-            if (!FindMachine(mid_pri[0], false)){
-                done = true;
-                break;
-            }
-        }
-        mid_pri.erase(mid_pri.begin());
-    }
-    while(!done && !low_pri.empty()){
-        if(!FindMachine(low_pri[0], true)){
-            if (!FindMachine(low_pri[0], false)){
-                done = true;
-                break;
-            }
-        }
-        low_pri.erase(low_pri.begin());
-    }
+    AssignTasks();
+
 }
 
 void Scheduler::Shutdown(Time_t time) {
@@ -350,10 +316,27 @@ void Scheduler::Shutdown(Time_t time) {
     // Report about the total energy consumed
     // Report about the SLA compliance
     // Shutdown everything to be tidy :-)
-    for(auto & vm: vms) {
-        VM_Shutdown(vm);
+    for(MachineVMs mvm: mc.arm) {
+        for(auto & vm: mvm.vms) {
+            VM_Shutdown(vm);
+        }
     }
-    SimOutput("SimulationComplete(): Finished!", 4);
+    for(MachineVMs mvm: mc.x86) {
+        for(auto & vm: mvm.vms) {
+            VM_Shutdown(vm);
+        }
+    }
+    for(MachineVMs mvm: mc.riscv) {
+        for(auto & vm: mvm.vms) {
+            VM_Shutdown(vm);
+        }
+    }
+    for(MachineVMs mvm: mc.power) {
+        for(auto & vm: mvm.vms) {
+            VM_Shutdown(vm);
+        }
+    }
+    SimOutput("SimulationComplete(): Finished!", 0);
     SimOutput("SimulationComplete(): Time is " + to_string(time), 4);
 }
 
@@ -366,64 +349,165 @@ bool comp (MachineVMs a, MachineVMs b) {
 }
 
 void Scheduler::TaskComplete(Time_t now, TaskId_t task_id) {
-    //SimOutput("complete run", 0);
-    TaskInfo_t task = GetTaskInfo(task_id);
-    vector<MachineVMs> compat_machines;
+    SimOutput("TaskComplete(): " + to_string(task_id) + " done.", 0);
+
+    TaskInfo_t task = GetTaskInfo(task_id);  // use reference to avoid copy
+    vector<MachineVMs>* compat_machines = nullptr;
+
     switch (task.required_cpu) {
         case ARM:
-            compat_machines = mc.arm;
+            compat_machines = &mc.arm;
             break;
         case X86:
-            compat_machines = mc.x86;
+            compat_machines = &mc.x86;
             break;
         case RISCV:
-            compat_machines = mc.riscv;
+            compat_machines = &mc.riscv;
             break;
         case POWER:
-            compat_machines = mc.power;
+            compat_machines = &mc.power;
+            break;
+    }
+
+    if (!compat_machines) return;
+
+    sort(compat_machines->begin(), compat_machines->end(), comp);
+
+    // VM remove task is buggy FFFFFFF THIS
+
+
+
+    
+    // for (size_t i = 0; i < compat_machines->size(); ++i) {
+    //     MachineVMs& machine_i = (*compat_machines)[i];
+    //     MachineInfo_t m_info_i = Machine_GetInfo(machine_i.id);
+
+    //     if (m_info_i.memory_used > 0 && m_info_i.s_state == S0 && machine_i.s == S0) {
+    //         for (size_t j = 0; j < machine_i.vms.size(); ++j) {
+    //             VMId_t vm_id = machine_i.vms[j];
+    //             vector<TaskId_t> vm_tasks = VM_GetInfo(vm_id).active_tasks;
+
+    //             size_t w = 0;
+    //             while (w < vm_tasks.size()) {
+    //                 TaskId_t other_task = vm_tasks[w];
+    //                 TaskInfo_t ot = GetTaskInfo(other_task);
+    //                 bool found = false;
+
+    //                 for (size_t k = compat_machines->size() - 1; k > i; --k) {
+    //                     MachineVMs& machine_k = (*compat_machines)[k];
+    //                     MachineInfo_t m_info_k = Machine_GetInfo(machine_k.id);
+
+    //                     if (m_info_k.memory_used + ot.required_memory < m_info_k.memory_size &&
+    //                         m_info_k.active_tasks < m_info_k.num_cpus) {
+
+    //                         SimOutput("Removing something", 0);
+    //                         SimOutput(to_string(other_task), 0);
+                            
+    //                         VM_RemoveTask(vm_id, other_task);
+
+    //                         size_t l = 0;
+    //                         for (; l < machine_k.vms.size(); ++l) {
+    //                             if (VM_GetInfo(machine_k.vms[l]).vm_type == ot.required_vm) {
+    //                                 VM_AddTask(machine_k.vms[l], other_task, ot.priority);
+    //                                 break;
+    //                             }
+    //                         }
+
+    //                         if (l == machine_k.vms.size()) {
+    //                             machine_k.vms.push_back(VM_Create(ot.required_vm, ot.required_cpu));
+    //                             SimOutput("That one", 4);
+    //                             VM_Attach(machine_k.vms[l], machine_k.id);
+    //                             VM_AddTask(machine_k.vms[l], other_task, ot.priority);
+    //                         }
+
+    //                         found = true;
+    //                         break;
+    //                     }
+    //                 }
+
+    //                 if (!found) {
+    //                     ++w;
+    //                 }
+    //             }
+
+    //             if (VM_GetInfo(vm_id).active_tasks.empty()) {
+    //                 machine_i.vms.erase(machine_i.vms.begin() + j);
+    //                 --j;  // adjust index after erasure
+    //             }
+    //         }
+    //     }
+    // }
+
+    SimOutput("Scheduler::TaskComplete(): Task " + to_string(task_id) + " is complete at " + to_string(now), 4);
+    SimOutput("Scheduler::TaskComplete(): Task " + to_string(task_id) + " is complete", 4);
+    tasks_completed++;
+    SimOutput("Scheduler::TaskComplete(): " + to_string(tasks_completed) + " tasks completed ", 4);
+}
+
+
+void Scheduler::ChangeComplete(Time_t now, MachineId_t machine_id){
+    MachineInfo_t m_info = Machine_GetInfo(machine_id);
+    SimOutput("StateChangeComplete: Machine "+ to_string(m_info.machine_id) + " in state " + to_string(m_info.s_state) + " ", 4); 
+    SimOutput("StateChangeComplete: Machine has "+ to_string(m_info.active_tasks) + " tasks ", 4); 
+    vector<MachineVMs>* compat_machines = nullptr;
+    switch (m_info.cpu) {
+        case ARM:
+            compat_machines = &mc.arm;
+            break;
+        case X86:
+            compat_machines = &mc.x86;
+            break;
+        case RISCV:
+            compat_machines = &mc.riscv;
+            break;
+        case POWER:
+            compat_machines = &mc.power;
             break;
     }
     size_t i = 0;
-    size_t j = 0;
-
-    sort(compat_machines.begin(), compat_machines.end(), comp);
-    size_t k;
-    for(i = 0; i < compat_machines.size(); i++) {
-        if (Machine_GetInfo(compat_machines[i].id).memory_used > 0 && Machine_GetInfo(compat_machines[i].id).s_state == S0 && compat_machines[i].s == S0) {
-            for(j = 0; j < compat_machines[i].vms.size(); j++){
-                for(TaskId_t other_task : VM_GetInfo(compat_machines[i].vms[j]).active_tasks){
-                    for(k = compat_machines.size() - 1; k > i; k--){
-                        MachineInfo_t mk = Machine_GetInfo(compat_machines[k].id);
-                        TaskInfo_t ot = GetTaskInfo(other_task);
-                        if (mk.memory_used + ot.required_memory < mk.memory_size && mk.active_tasks < mk.num_cpus) {
-                            VM_RemoveTask(compat_machines[i].vms[j], other_task);
-                            size_t l;
-                            for(l = 0; l < compat_machines[k].vms.size(); l++){
-                                if(VM_GetInfo(compat_machines[k].vms[l]).vm_type == task.required_vm){
-                                    VM_AddTask(compat_machines[k].vms[l], other_task, ot.priority);
-                                }
-                            }
-                            if(l == compat_machines[k].vms.size()){
-                                // Machine_SetState(compat_machines[k].id, S0);
-                                
-                                compat_machines[k].vms.push_back(VM_Create(ot.required_vm, ot.required_cpu));
-                                SimOutput("That one", 4);
-                                VM_Attach(compat_machines[k].vms[l], compat_machines[k].id);
-                                VM_AddTask(compat_machines[k].vms[l], other_task, ot.priority);
-                            }
-                        }
-                    }
-                }
-                if (VM_GetInfo(compat_machines[i].vms[j]).active_tasks.empty()){
-                    compat_machines[i].vms.erase(compat_machines[i].vms.begin() + j);
-                }
-            }
+    for(i = 0; i < compat_machines->size(); i++){
+        if((*compat_machines)[i].id == machine_id){
+            break;
         }
     }
-    SimOutput("Scheduler::TaskComplete(): Task " + to_string(task_id) + " is complete at " + to_string(now), 0);
-    SimOutput("Scheduler::TaskComplete(): Task " + to_string(task_id) + " is complete", 4);
-}
+    (*compat_machines)[i].s = m_info.s_state;
+    if (m_info.s_state != S0 && pending.find(machine_id) != pending.end()) {
+        (*compat_machines)[i].s = S0;
+        Machine_SetState(machine_id, S0);
+    } else if(m_info.s_state == S0){
+        if(i == compat_machines->size()){
+            (*compat_machines)[i].id = machine_id;
+        }
 
+        //exists
+        vector<TaskId_t>& tasks = pending[machine_id].tasks;
+        // SimOutput("StateChangeComplete: " + to_string(tasks_added) + " tasks added ", 0);
+        while (!tasks.empty()){
+            TaskInfo_t task = GetTaskInfo(tasks[0]);
+            // m_info.active_tasks --;
+            // m_info.memory_used -= task.required_memory;
+            size_t j = 0;
+            for(j = 0; j < (*compat_machines)[i].vms.size(); j++){
+                if(VM_GetInfo((*compat_machines)[i].vms[j]).vm_type == task.required_vm){
+                    // tasks_added++;
+                    // SimOutput("StateChangeComplete: " + to_string(tasks_added) + " tasks added ", 0)
+                    VM_AddTask((*compat_machines)[i].vms[j], tasks[0], task.priority);
+                    break;
+                }
+            }
+            if(j == (*compat_machines)[i].vms.size()){                
+                (*compat_machines)[i].vms.push_back(VM_Create(task.required_vm, task.required_cpu));
+                //SimOutput("That one", 0);
+                VM_Attach((*compat_machines)[i].vms[j], (*compat_machines)[i].id);
+                // tasks_added++;
+                // SimOutput("StateChangeComplete: " + to_string(tasks_added) + " tasks added ", 0);
+                VM_AddTask((*compat_machines)[i].vms[j], tasks[0], task.priority);
+            }
+            tasks.erase(tasks.begin());
+        }
+        pending.erase(machine_id);
+    }
+}
 // Public interface below
 
 static Scheduler Scheduler;
@@ -481,90 +565,6 @@ void SLAWarning(Time_t time, TaskId_t task_id) {
 
 void StateChangeComplete(Time_t time, MachineId_t machine_id) {
     //SimOutput(to_string(time), 0);
-    
-    MachineInfo_t m_info = Machine_GetInfo(machine_id);
-    SimOutput("Complete: Machine "+ to_string(m_info.machine_id) + " in state " + to_string(m_info.s_state) + " ", 0); 
-    SimOutput("Complete: Machine has "+ to_string(m_info.active_tasks) + " tasks ", 0); 
-    if (m_info.s_state != S0 && pending.find(machine_id) != pending.end()) {
-            vector<MachineVMs> compat_machines;
-            MachineVMs this_m;
-            switch (m_info.cpu) {
-                case ARM:
-                    compat_machines = mc.arm;
-                    break;
-                case X86:
-                    compat_machines = mc.x86;
-                    break;
-                case RISCV:
-                    compat_machines = mc.riscv;
-                    break;
-                case POWER:
-                    compat_machines = mc.power;
-                    break;
-            }
-            size_t i = 0;
-            for(i = 0; i < compat_machines.size(); i++){
-                if(compat_machines[i].id == machine_id){
-                    this_m = compat_machines[i];
-                    break;
-                }
-            }
-            Machine_SetState(machine_id, S0);
-            this_m.s = S0;
-    }
-    if(m_info.s_state == S0){
-        if (pending.find(machine_id) != pending.end()) {
-            //SimOutput("Here", 0);
-            vector<MachineVMs> compat_machines;
-            MachineVMs this_m;
-            switch (m_info.cpu) {
-                case ARM:
-                    compat_machines = mc.arm;
-                    break;
-                case X86:
-                    compat_machines = mc.x86;
-                    break;
-                case RISCV:
-                    compat_machines = mc.riscv;
-                    break;
-                case POWER:
-                    compat_machines = mc.power;
-                    break;
-            }
-            size_t i = 0;
-            for(i = 0; i < compat_machines.size(); i++){
-                if(compat_machines[i].id == machine_id){
-                    this_m = compat_machines[i];
-                    break;
-                }
-            }
-            if(i == compat_machines.size()){
-                this_m.id = machine_id;
-            }
-
-            //exists
-            vector<TaskId_t>& tasks = pending[machine_id].tasks;
-            while (!tasks.empty()){
-                TaskInfo_t task = GetTaskInfo(tasks[0]);
-                // m_info.active_tasks --;
-                // m_info.memory_used -= task.required_memory;
-                size_t j = 0;
-                for(j = 0; j < this_m.vms.size(); j++){
-                    if(VM_GetInfo(this_m.vms[j]).vm_type == task.required_vm){
-                        VM_AddTask(this_m.vms[j], tasks[0], task.priority);
-                        break;
-                    }
-                }
-                if(j == this_m.vms.size()){                
-                    this_m.vms.push_back(VM_Create(task.required_vm, task.required_cpu));
-                    //SimOutput("That one", 0);
-                    VM_Attach(this_m.vms[j], this_m.id);
-                    VM_AddTask(this_m.vms[j], tasks[0], task.priority);
-                }
-                tasks.erase(tasks.begin());
-            }
-            pending.erase(machine_id);
-        }
-    }
+    Scheduler.ChangeComplete(time, machine_id);
 }
 
