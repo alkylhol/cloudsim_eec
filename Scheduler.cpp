@@ -28,8 +28,10 @@ typedef struct {
 static unordered_map<MachineId_t, tasks_and_memory> pending;
 
 
+static vector<TaskId_t> high_gpu;
 static vector<TaskId_t> high_pri;
 static vector<TaskId_t> mid_pri;
+static vector<TaskId_t> low_gpu;
 static vector<TaskId_t> low_pri;
 
 static int tasks_completed;
@@ -78,7 +80,7 @@ void Scheduler::Init() {
         machine.id = MachineId_t(i);
         machine.s = S0;
         MachineState_t state_sleep = S3;
-        size_t machine_cnt = 1;
+        size_t machine_cnt = 6;
         switch(Machine_GetCPUType(MachineId_t(i))){
             case ARM:
                 if(arm_cnt > machine_cnt){
@@ -258,6 +260,16 @@ bool Scheduler::FindMachine(TaskId_t task_id, bool active) {
 
 void Scheduler::AssignTasks(){
     bool done = false;
+    while(!done && !high_gpu.empty()){
+        if(!FindMachine(high_gpu[0], true)){
+            if (!FindMachine(high_gpu[0], false)){
+                done = true;
+                break;
+            }
+        }
+        high_gpu.erase(high_gpu.begin());
+    }
+    done = false;
     while(!done && !high_pri.empty()){
         if(!FindMachine(high_pri[0], true)){
             if (!FindMachine(high_pri[0], false)){
@@ -267,6 +279,7 @@ void Scheduler::AssignTasks(){
         }
         high_pri.erase(high_pri.begin());
     }
+    done = false;
     while(!done && !mid_pri.empty()){
         if(!FindMachine(mid_pri[0], true)){
             if (!FindMachine(mid_pri[0], false)){
@@ -276,6 +289,17 @@ void Scheduler::AssignTasks(){
         }
         mid_pri.erase(mid_pri.begin());
     }
+    done = false;
+    while(!done && !low_gpu.empty()){
+        if(!FindMachine(low_gpu[0], true)){
+            if (!FindMachine(low_gpu[0], false)){
+                done = true;
+                break;
+            }
+        }
+        low_gpu.erase(low_gpu.begin());
+    }
+    done = false;
     while(!done && !low_pri.empty()){
         if(!FindMachine(low_pri[0], true)){
             if (!FindMachine(low_pri[0], false)){
@@ -292,13 +316,25 @@ void Scheduler::NewTask(Time_t now, TaskId_t task_id) {
     switch(task.required_sla){
         case SLA0:
         case SLA1:
-            high_pri.push_back(task_id);
+            if(task.gpu_capable){
+                high_gpu.push_back(task_id);
+            } else {
+                high_pri.push_back(task_id);
+            }
             break;
         case SLA2:
-            mid_pri.push_back(task_id);
+            if(task.gpu_capable){
+                high_gpu.push_back(task_id);
+            } else {
+                mid_pri.push_back(task_id);
+            }
             break;
         case SLA3:
-            low_pri.push_back(task_id);
+            if(task.gpu_capable){
+                low_gpu.push_back(task_id);
+            } else {
+                low_pri.push_back(task_id);
+            }
             break;
     }
     AssignTasks();
