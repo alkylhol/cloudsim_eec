@@ -37,6 +37,8 @@ static int tasks_completed;
 static bool migrating = false;
 //static unsigned active_machines = 0;
 static machine_cpus mc;
+static int migrate_frequency = 500;
+static int cycle = 0;
 
 // void TurnOnFraction(float frac, vector<MachineVMs> arr){
 //     size_t i = 0;
@@ -76,7 +78,7 @@ void Scheduler::Init() {
         machine.id = MachineId_t(i);
         machine.s = S0;
         MachineState_t state_sleep = S3;
-        size_t machine_cnt = 1;
+        size_t machine_cnt = 1000;
         switch(Machine_GetCPUType(MachineId_t(i))){
             case ARM:
                 if(arm_cnt > machine_cnt){
@@ -128,7 +130,32 @@ void Scheduler::Init() {
 
 void Scheduler::MigrationComplete(Time_t time, VMId_t vm_id) {
     // Update your data structure. The VM now can receive new tasks
+    MachineId_t m = VM_GetInfo(vm_id).machine_id;
+    MachineInfo_t m_info = Machine_GetInfo(m);
+    vector<MachineVMs>* compat_machines;
     
+    switch (m_info.cpu) {
+        case ARM:
+            compat_machines = &mc.arm;
+            break;
+        case X86:
+            compat_machines = &mc.x86;
+            break;
+        case RISCV:
+            compat_machines = &mc.riscv;
+            break;
+        case POWER:
+            compat_machines = &mc.power;
+            break;
+    }
+    size_t i = 0;
+    for(i = 0; i < compat_machines->size(); i++){
+        if((*compat_machines)[i].id == m){
+            break;
+        }
+    }
+    (*compat_machines)[i].vms.push_back(vm_id);
+
 }
 
 bool dec_comp (MachineVMs a, MachineVMs b) {
@@ -138,6 +165,8 @@ bool dec_comp (MachineVMs a, MachineVMs b) {
     float util_b = (b_info.memory_used * 1.0f) / (b_info.memory_size * 1.0f);
     return util_a > util_b;
 }
+
+
 bool Scheduler::FindMachine(TaskId_t task_id, bool active) {
     TaskInfo_t task = GetTaskInfo(task_id);
     vector<MachineVMs>* compat_machines = nullptr;
@@ -349,11 +378,9 @@ bool comp (MachineVMs a, MachineVMs b) {
 }
 
 void Scheduler::TaskComplete(Time_t now, TaskId_t task_id) {
-    SimOutput("TaskComplete(): " + to_string(task_id) + " done.", 0);
-
-    TaskInfo_t task = GetTaskInfo(task_id);  // use reference to avoid copy
-    vector<MachineVMs>* compat_machines = nullptr;
-
+    TaskInfo_t task = GetTaskInfo(task_id);
+    vector<MachineVMs>* compat_machines;
+    
     switch (task.required_cpu) {
         case ARM:
             compat_machines = &mc.arm;
@@ -368,76 +395,80 @@ void Scheduler::TaskComplete(Time_t now, TaskId_t task_id) {
             compat_machines = &mc.power;
             break;
     }
+    //idea: migration is expensive. Only do migration every frequency tasks
+    cycle++;
+    if(cycle == migrate_frequency){
+        cycle = 0;
+        size_t i = 0;
+        TaskId_t dummy = 4294967295;
+        size_t min_task_sum = dummy;
+        VMId_t min_vm = dummy;
+        MachineId_t min_mac = dummy;
+        // sort the actual vector via the pointer
+        sort(compat_machines->begin(), compat_machines->end(), comp);
+        
+        for (i = 0; i < compat_machines->size() / 2; i++) {
+            MachineVMs& mvm = (*compat_machines)[i];
+            if (Machine_GetInfo(mvm.id).memory_used > 0 && Machine_GetInfo(mvm.id).s_state == S0 && mvm.s == S0) {
+                for (VMId_t vm : mvm.vms) {
+                    size_t task_sum = 0;
+                    for (TaskId_t t : VM_GetInfo(vm).active_tasks) {
+                        task_sum += GetTaskInfo(t).required_memory;
+                    }
+                    if(min_vm == dummy || task_sum > min_task_sum){
+                        min_vm = vm;
+                        min_task_sum = task_sum;
+                        min_mac = mvm.id;
+                    } 
+                }
+            }
+        }
+        if(min_vm == dummy){
+            return;
+        }
+        VMInfo_t min_vm_info = VM_GetInfo(min_vm);
+        // we now have the smallest vm in the right half.
+        // find if any vms in the left half can support this vm.
+        bool found_vm;
+        for (i = compat_machines->size() - 1; i >= compat_machines->size() / 2; i--) {
+            MachineVMs& mvm = (*compat_machines)[i];
+            MachineInfo_t mvm_info = Machine_GetInfo(mvm.id);
+            if (mvm_info.memory_used > 0 && mvm_info.s_state == S0 && mvm.s == S0) {
+                bool can_fit = (mvm_info.memory_used + min_task_sum < mvm_info.memory_size);
+                can_fit = can_fit && (min_vm_info.active_tasks.size() + mvm_info.active_tasks < mvm_info.num_cpus);
+                if(mvm_info.memory_used + min_task_sum < mvm_info.memory_size){
+                    // good vm
+                    found_vm = true;
+                    break;
+                }
+            }
+        }
+        if(found_vm && min_vm != dummy){
+            size_t i = 0;
+            for(i = 0; i < compat_machines->size(); i++){
+                if((*compat_machines)[i].id == min_mac){
+                    break;
+                }
+            }
+            if(i == compat_machines->size()){
+                SimOutput("w", 0);
+            }
+            size_t j = 0;
+            bool found = false;
+            for(j = 0; j < (*compat_machines)[i].vms.size(); j++){
+                if((*compat_machines)[i].vms[j] == min_vm){
+                    found = true;
+                    (*compat_machines)[i].vms.erase((*compat_machines)[i].vms.begin() + j);
+                    break;
+                }
+            }
+            if(!found){
+                SimOutput("fdfsd", 0);
+            }
 
-    if (!compat_machines) return;
-
-    sort(compat_machines->begin(), compat_machines->end(), comp);
-
-    // VM remove task is buggy FFFFFFF THIS
-
-
-
-    
-    // for (size_t i = 0; i < compat_machines->size(); ++i) {
-    //     MachineVMs& machine_i = (*compat_machines)[i];
-    //     MachineInfo_t m_info_i = Machine_GetInfo(machine_i.id);
-
-    //     if (m_info_i.memory_used > 0 && m_info_i.s_state == S0 && machine_i.s == S0) {
-    //         for (size_t j = 0; j < machine_i.vms.size(); ++j) {
-    //             VMId_t vm_id = machine_i.vms[j];
-    //             vector<TaskId_t> vm_tasks = VM_GetInfo(vm_id).active_tasks;
-
-    //             size_t w = 0;
-    //             while (w < vm_tasks.size()) {
-    //                 TaskId_t other_task = vm_tasks[w];
-    //                 TaskInfo_t ot = GetTaskInfo(other_task);
-    //                 bool found = false;
-
-    //                 for (size_t k = compat_machines->size() - 1; k > i; --k) {
-    //                     MachineVMs& machine_k = (*compat_machines)[k];
-    //                     MachineInfo_t m_info_k = Machine_GetInfo(machine_k.id);
-
-    //                     if (m_info_k.memory_used + ot.required_memory < m_info_k.memory_size &&
-    //                         m_info_k.active_tasks < m_info_k.num_cpus) {
-
-    //                         SimOutput("Removing something", 0);
-    //                         SimOutput(to_string(other_task), 0);
-                            
-    //                         VM_RemoveTask(vm_id, other_task);
-
-    //                         size_t l = 0;
-    //                         for (; l < machine_k.vms.size(); ++l) {
-    //                             if (VM_GetInfo(machine_k.vms[l]).vm_type == ot.required_vm) {
-    //                                 VM_AddTask(machine_k.vms[l], other_task, ot.priority);
-    //                                 break;
-    //                             }
-    //                         }
-
-    //                         if (l == machine_k.vms.size()) {
-    //                             machine_k.vms.push_back(VM_Create(ot.required_vm, ot.required_cpu));
-    //                             SimOutput("That one", 4);
-    //                             VM_Attach(machine_k.vms[l], machine_k.id);
-    //                             VM_AddTask(machine_k.vms[l], other_task, ot.priority);
-    //                         }
-
-    //                         found = true;
-    //                         break;
-    //                     }
-    //                 }
-
-    //                 if (!found) {
-    //                     ++w;
-    //                 }
-    //             }
-
-    //             if (VM_GetInfo(vm_id).active_tasks.empty()) {
-    //                 machine_i.vms.erase(machine_i.vms.begin() + j);
-    //                 --j;  // adjust index after erasure
-    //             }
-    //         }
-    //     }
-    // }
-
+            VM_Migrate(min_vm, (*compat_machines)[i].id);
+        }
+    }
     SimOutput("Scheduler::TaskComplete(): Task " + to_string(task_id) + " is complete at " + to_string(now), 4);
     SimOutput("Scheduler::TaskComplete(): Task " + to_string(task_id) + " is complete", 4);
     tasks_completed++;
