@@ -27,9 +27,10 @@ typedef struct {
 } tasks_and_memory;
 static unordered_map<MachineId_t, tasks_and_memory> pending;
 
-
+static vector<TaskId_t> high_gpu;
 static vector<TaskId_t> high_pri;
 static vector<TaskId_t> mid_pri;
+static vector<TaskId_t> low_gpu;
 static vector<TaskId_t> low_pri;
 
 static int tasks_completed;
@@ -109,10 +110,10 @@ void Scheduler::Init() {
     size_t power_standby = ceil(mc.power.size() * s3_frac) + power_on; // Remaining POWER machines to put in standby
 
     //SimOutput("x86on" + to_string(x86_on))
-    SimOutput("Scheduler::Init(): ARM machines to turn on: " + to_string(arm_on), 0);
-    SimOutput("Scheduler::Init(): X86 machines to turn on: " + to_string(x86_on), 0);
-    SimOutput("Scheduler::Init(): RISCV machines to turn on: " + to_string(riscv_on), 0);
-    SimOutput("Scheduler::Init(): POWER machines to turn on: " + to_string(power_on), 0);
+    // SimOutput("Scheduler::Init(): ARM machines to turn on: " + to_string(arm_on), 0);
+    // SimOutput("Scheduler::Init(): X86 machines to turn on: " + to_string(x86_on), 0);
+    // SimOutput("Scheduler::Init(): RISCV machines to turn on: " + to_string(riscv_on), 0);
+    // SimOutput("Scheduler::Init(): POWER machines to turn on: " + to_string(power_on), 0);
     // Set the initial states of the machines based on the fractions
     for (size_t i = 0; i < mc.arm.size(); i++) {
         if (i < arm_on) {
@@ -264,7 +265,7 @@ bool dec_comp (MachineVMs a, MachineVMs b) {
 }
 
 
-bool Scheduler::FindMachine(TaskId_t task_id, bool active) {
+bool Scheduler::FindMachine(TaskId_t task_id, bool active, bool deep_sleep) {
     TaskInfo_t task = GetTaskInfo(task_id);
     vector<MachineVMs>* compat_machines = nullptr;
 
@@ -294,11 +295,14 @@ bool Scheduler::FindMachine(TaskId_t task_id, bool active) {
 
         SimOutput("FindMachine " + to_string(m_info.machine_id) + " in state " + to_string(m_info.s_state), 4); 
         SimOutput("FindMachine transitioning to " + to_string((size_t)machine.s), 4); 
-
-        if (active && (m_info.s_state != S0 || m_info.s_state != machine.s)) {
+        // active: looking for S0 machine
+        if (active && !deep_sleep && (m_info.s_state != S0 || m_info.s_state != machine.s)) {
             continue;
         }
-        if (!active && (m_info.s_state == S0 && m_info.s_state == machine.s)) {
+        if (!active && !deep_sleep && (m_info.s_state != S3)) {
+            continue;
+        }
+        if (deep_sleep && m_info.s_state != S5) {
             continue;
         }
 
@@ -309,7 +313,7 @@ bool Scheduler::FindMachine(TaskId_t task_id, bool active) {
                 && pending.find(machine.id) != pending.end() 
                 && pending[machine.id].tasks.size() < m_info.num_cpus 
                 && pending[machine.id].memory_used + task.required_memory < m_info.memory_size);
-
+            
             if (!allowed) continue;
 
             if (!active) {
@@ -356,33 +360,42 @@ bool Scheduler::FindMachine(TaskId_t task_id, bool active) {
 void Scheduler::AssignTasks(){
     bool done = false;
     while(!done && !high_pri.empty()){
-        if(!FindMachine(high_pri[0], true)){
-            if (!FindMachine(high_pri[0], false)){
-                done = true;
-                break;
+        if(!FindMachine(high_pri[0], true, false)){
+            if (!FindMachine(high_pri[0], false, false)){
+                if (!FindMachine(high_pri[0], false, true)){
+                    done = true;
+                    break;
+                }
             }
         }
         high_pri.erase(high_pri.begin());
     }
+    done = false;
     while(!done && !mid_pri.empty()){
-        if(!FindMachine(mid_pri[0], true)){
-            if (!FindMachine(mid_pri[0], false)){
-                done = true;
-                break;
+        if(!FindMachine(mid_pri[0], true, false)){
+            if (!FindMachine(mid_pri[0], false, false)){
+                if (!FindMachine(mid_pri[0], false, true)){
+                    done = true;
+                    break;
+                }
             }
         }
         mid_pri.erase(mid_pri.begin());
     }
+    done = false;
     while(!done && !low_pri.empty()){
-        if(!FindMachine(low_pri[0], true)){
-            if (!FindMachine(low_pri[0], false)){
-                done = true;
-                break;
+        if(!FindMachine(low_pri[0], true, false)){
+            if (!FindMachine(low_pri[0], false, false)){
+                if (!FindMachine(low_pri[0], false, true)){
+                    done = true;
+                    break;
+                }
             }
         }
         low_pri.erase(low_pri.begin());
     }
 }
+
 void Scheduler::NewTask(Time_t now, TaskId_t task_id) {
     // Get the task parameters
     TaskInfo_t task = GetTaskInfo(task_id);
