@@ -304,6 +304,9 @@ bool Scheduler::FindMachine(TaskId_t task_id, bool active, bool deep_sleep) {
         }
         if (deep_sleep && m_info.s_state != S5) {
             continue;
+        } 
+        if (task.gpu_capable && !m_info.gpus){
+            continue;
         }
 
         if (m_info.memory_used + task.required_memory < m_info.memory_size && m_info.active_tasks < m_info.num_cpus) {
@@ -359,6 +362,19 @@ bool Scheduler::FindMachine(TaskId_t task_id, bool active, bool deep_sleep) {
 
 void Scheduler::AssignTasks(){
     bool done = false;
+    while(!done && !high_gpu.empty()){
+        if(!FindMachine(high_gpu[0], true, false)){
+            if (!FindMachine(high_gpu[0], false, false)){
+                if (!FindMachine(high_gpu[0], false, true)){
+                    done = true;
+                    break;
+                }
+            }
+        }
+        high_gpu.erase(high_gpu.begin());
+    }
+    
+    done = false;
     while(!done && !high_pri.empty()){
         if(!FindMachine(high_pri[0], true, false)){
             if (!FindMachine(high_pri[0], false, false)){
@@ -370,6 +386,7 @@ void Scheduler::AssignTasks(){
         }
         high_pri.erase(high_pri.begin());
     }
+
     done = false;
     while(!done && !mid_pri.empty()){
         if(!FindMachine(mid_pri[0], true, false)){
@@ -382,6 +399,20 @@ void Scheduler::AssignTasks(){
         }
         mid_pri.erase(mid_pri.begin());
     }
+
+    done = false;
+    while(!done && !low_gpu.empty()){
+        if(!FindMachine(low_gpu[0], true, false)){
+            if (!FindMachine(low_gpu[0], false, false)){
+                if (!FindMachine(low_gpu[0], false, true)){
+                    done = true;
+                    break;
+                }
+            }
+        }
+        low_gpu.erase(low_gpu.begin());
+    }   
+
     done = false;
     while(!done && !low_pri.empty()){
         if(!FindMachine(low_pri[0], true, false)){
@@ -402,13 +433,25 @@ void Scheduler::NewTask(Time_t now, TaskId_t task_id) {
     switch(task.required_sla){
         case SLA0:
         case SLA1:
-            high_pri.push_back(task_id);
+            if(task.gpu_capable){
+                high_gpu.push_back(task_id);
+            } else {
+                high_pri.push_back(task_id);
+            }
             break;
         case SLA2:
-            mid_pri.push_back(task_id);
+            if(task.gpu_capable){
+                high_gpu.push_back(task_id);
+            } else {
+                mid_pri.push_back(task_id);
+            }
             break;
         case SLA3:
-            low_pri.push_back(task_id);
+            if(task.gpu_capable){
+                low_gpu.push_back(task_id);
+            } else {
+                low_pri.push_back(task_id);
+            }
             break;
     }
     AssignTasks();
