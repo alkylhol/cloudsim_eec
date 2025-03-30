@@ -78,7 +78,7 @@ void Scheduler::Init() {
         machine.id = MachineId_t(i);
         machine.s = S0;
         MachineState_t state_sleep = S3;
-        size_t machine_cnt = 1000;
+        size_t machine_cnt = 1;
         switch(Machine_GetCPUType(MachineId_t(i))){
             case ARM:
                 if(arm_cnt > machine_cnt){
