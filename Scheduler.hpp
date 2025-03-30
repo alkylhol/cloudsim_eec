@@ -24,6 +24,8 @@ public:
     void Shutdown(Time_t now);
     void TaskComplete(Time_t now, TaskId_t task_id);
     bool FindMachine(TaskId_t task_id, bool active);
+    void AssignTasks();
+    void ChangeComplete(Time_t time, MachineId_t machine_id);
 private:
     vector<VMId_t> vms;
     vector<MachineId_t> machines;
