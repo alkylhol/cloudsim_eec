@@ -1,3 +1,10 @@
-This is the repository for the Cloud Simulator project for CS 378. To run this project, you can compile the Scheduler with make scheduler and run make simulator to create your simulator executable. Run ./simulator Input.md to see your results.
+# Leveled Scheduler
 
-For questions, please reach out to any of the course staff on via email (anish.palakurthi@utexas.edu, tarun.mohan@utexas.edu, mootaz@austin.utexas.edu) or Ed Discussion.
+This scheduler uses a leveled approach to scheduling tasks. Much like the Apple efficiency cores, we set aside the highest performing machines in one list, and the lowest performing machines in another list, based on MIPS. Then, we assign tasks between these two based on priority.
+
+## Core Methods
+
+- **Init()**: Assigns a set number of machines to S3 initially and defines performance split.
+
+- **NewTask()**: Greedily assigns tasks to machines based on SLA.
+
