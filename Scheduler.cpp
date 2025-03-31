@@ -197,7 +197,7 @@ void Scheduler::MigrationComplete (Time_t time, VMId_t vm_id)
       receiving.erase (it); // Erase by iterator
     }
   vector<MachineVMs>* compat_machines;
-
+  // Get correct cpu_type list
   switch (m_info.cpu)
     {
       case ARM:
@@ -224,6 +224,10 @@ void Scheduler::MigrationComplete (Time_t time, VMId_t vm_id)
   (*compat_machines)[i].vms.push_back (vm_id);
 }
 
+/* This function is used to compare two machines based on their memory utilization.
+   It returns true if the first machine has a higher memory utilization than the second machine.
+   Note: descending order
+*/
 bool dec_comp (MachineVMs a, MachineVMs b)
 {
   MachineInfo_t a_info = Machine_GetInfo (a.id);
@@ -233,6 +237,11 @@ bool dec_comp (MachineVMs a, MachineVMs b)
   return util_a > util_b;
 }
 
+/* This function is used to find a machine that can run the task with the given task_id.
+   It checks if the machine is in the correct state (active, deep sleep, etc.) and if it has enough resources.
+   If a suitable machine is found, it assigns the task to that machine or adds it to pending and returns true.
+   If no suitable machine is found, it returns false.
+*/
 bool Scheduler::FindMachine (TaskId_t task_id, bool active, bool deep_sleep)
 {
   TaskInfo_t task = GetTaskInfo (task_id);
@@ -259,7 +268,7 @@ bool Scheduler::FindMachine (TaskId_t task_id, bool active, bool deep_sleep)
 
   size_t i = 0;
   sort (compat_machines->begin (), compat_machines->end (), dec_comp);
-
+  // goes through list of machines
   for (i = 0; i < compat_machines->size (); i++)
     {
       MachineVMs& machine = (*compat_machines)[i]; // cleaner access
@@ -271,6 +280,8 @@ bool Scheduler::FindMachine (TaskId_t task_id, bool active, bool deep_sleep)
       SimOutput (
           "FindMachine transitioning to " + to_string ((size_t) machine.s), 4);
       // active: looking for S0 machine
+      // deep_sleep: looking for S5 machine
+      // !active && !deep_sleep: looking for S3 machine
       if (active && !deep_sleep &&
           (m_info.s_state != S0 || m_info.s_state != machine.s))
         {
@@ -288,10 +299,11 @@ bool Scheduler::FindMachine (TaskId_t task_id, bool active, bool deep_sleep)
         {
           continue;
         }
-
+      // Check if the machine has enough memory and CPU resources
       if (m_info.memory_used + task.required_memory < m_info.memory_size &&
           m_info.active_tasks < m_info.num_cpus)
         {
+          // if looking for asleep, make sure not too many pending tasks
           bool allowed = active;
           allowed = allowed ||
                     (!active && pending.find (machine.id) == pending.end ());
@@ -306,6 +318,7 @@ bool Scheduler::FindMachine (TaskId_t task_id, bool active, bool deep_sleep)
 
           if (!active)
             {
+              // add to pending
               if (pending.find (machine.id) != pending.end ())
                 {
                   pending[machine.id].tasks.push_back (task_id);
@@ -328,6 +341,7 @@ bool Scheduler::FindMachine (TaskId_t task_id, bool active, bool deep_sleep)
             }
           else
             {
+              //add to actual machine
               size_t j = 0;
               for (j = 0; j < machine.vms.size (); j++)
                 {
@@ -338,9 +352,10 @@ bool Scheduler::FindMachine (TaskId_t task_id, bool active, bool deep_sleep)
                       return true;
                     }
                 }
-
+              //if we are here, we did not find a vm of the right type
               if (j == machine.vms.size ())
                 {
+                  //create vm and attach
                   machine.vms.push_back (
                       VM_Create (task.required_vm, task.required_cpu));
                   SimOutput ("Adding to ID " + to_string (machine.id), 4);
@@ -356,6 +371,7 @@ bool Scheduler::FindMachine (TaskId_t task_id, bool active, bool deep_sleep)
   return false;
 }
 
+// This function assigns tasks to machines based on their priority and GPU capability
 void Scheduler::AssignTasks ()
 {
   bool done = false;
@@ -444,6 +460,11 @@ void Scheduler::AssignTasks ()
     }
 }
 
+/* Asynchronously called when a new task is added
+   It checks the task's required SLA and GPU capability
+   It adds the task to the appropriate priority list based on its SLA and GPU capability
+   Finally, it calls AssignTasks() to assign tasks to machines
+*/
 void Scheduler::NewTask (Time_t now, TaskId_t task_id)
 {
   // Get the task parameters
@@ -507,6 +528,7 @@ bool InMigration (MachineVMs mvm)
   return found;
 }
 
+// This function turns off machines in S0 if the number of machines in S0 exceeds a certain threshold
 void TurnOffMachines (vector<MachineVMs>& cpu_type)
 {
   size_t amt = 0;
@@ -542,13 +564,13 @@ void TurnOffMachines (vector<MachineVMs>& cpu_type)
         amt--;
     }
 }
-
+// This function adjusts the percentage of machines in S3 and S5 states
 void AdjustPercentage (vector<MachineVMs>& cpu_type)
 {
   size_t amt_in_s0 = 0;
   size_t amt_in_s3 = 0;
   size_t amt_in_s5 = 0;
-  // Count the number of machines in S0
+  // Count the number of machines in S0, S3, and S5
   for (size_t i = 0; i < cpu_type.size (); i++)
     {
       MachineInfo_t m_info = Machine_GetInfo (cpu_type[i].id);
@@ -565,10 +587,11 @@ void AdjustPercentage (vector<MachineVMs>& cpu_type)
           amt_in_s5++;
         }
     }
-
+  //check threshold of S3
   size_t s3_threshold = ceil (cpu_type.size () * s3_frac);
   if (amt_in_s3 > s3_threshold)
     {
+      //too many? move down
       SimOutput ("Need to move machines from S3 to S5, current S3 count: " +
                      to_string (amt_in_s3) +
                      " threshold: " + to_string (s3_threshold) +
@@ -592,6 +615,7 @@ void AdjustPercentage (vector<MachineVMs>& cpu_type)
     }
   else if (amt_in_s3 < s3_threshold)
     {
+      //too few? move up
       SimOutput ("Need to move machines from S5 to S3, current S3 count: " +
                      to_string (amt_in_s3) +
                      " threshold: " + to_string (s3_threshold) +
@@ -615,6 +639,11 @@ void AdjustPercentage (vector<MachineVMs>& cpu_type)
     }
 }
 
+/* Asynchronously called every so often
+   It checks if any tasks still need to be assigned, and assigns them
+   Also calls AdjustPercentage() to adjust the percentage of machines in S3 and S5 states
+   Finally, it turns off machines that are not in use
+*/
 void Scheduler::PeriodicCheck (Time_t now)
 {
   if ((!high_pri.empty () || !mid_pri.empty () || !low_pri.empty ()))
@@ -671,6 +700,10 @@ void Scheduler::Shutdown (Time_t time)
   SimOutput ("SimulationComplete(): Time is " + to_string (time), 4);
 }
 
+/* This function is used to compare two machines based on their memory utilization.
+   It returns true if the first machine has a lower memory utilization than the second machine.
+   Note: ascending order
+*/
 bool comp (MachineVMs a, MachineVMs b)
 {
   MachineInfo_t a_info = Machine_GetInfo (a.id);
@@ -680,6 +713,8 @@ bool comp (MachineVMs a, MachineVMs b)
   return util_a < util_b;
 }
 
+/* This function is called when a task is completed.
+*/
 void Scheduler::TaskComplete (Time_t now, TaskId_t task_id)
 {
   TaskInfo_t task = GetTaskInfo (task_id);
@@ -808,7 +843,9 @@ void Scheduler::TaskComplete (Time_t now, TaskId_t task_id)
                  " tasks completed ",
              4);
 }
-
+/* This function is called when a state change is complete.
+   It assigns any pending tasks to it.
+*/
 void Scheduler::ChangeComplete (Time_t now, MachineId_t machine_id)
 {
   MachineInfo_t m_info = Machine_GetInfo (machine_id);
@@ -834,6 +871,7 @@ void Scheduler::ChangeComplete (Time_t now, MachineId_t machine_id)
         compat_machines = &mc.power;
         break;
     }
+  // get correct MachineVMs struct
   size_t i = 0;
   for (i = 0; i < compat_machines->size (); i++)
     {
@@ -843,11 +881,13 @@ void Scheduler::ChangeComplete (Time_t now, MachineId_t machine_id)
         }
     }
   (*compat_machines)[i].s = m_info.s_state;
+  // if we put this to sleep, but still have pending tasks, start it back up
   if (m_info.s_state != S0 && pending.find (machine_id) != pending.end ())
     {
       (*compat_machines)[i].s = S0;
       Machine_SetState (machine_id, S0);
     }
+  //otherwise, this machine is now awake, so we can assign pending tasks to it
   else if (m_info.s_state == S0)
     {
       if (i == compat_machines->size ())
@@ -862,17 +902,13 @@ void Scheduler::ChangeComplete (Time_t now, MachineId_t machine_id)
       while (!tasks.empty ())
         {
           TaskInfo_t task = GetTaskInfo (tasks[0]);
-          // m_info.active_tasks --;
-          // m_info.memory_used -= task.required_memory;
           size_t j = 0;
+          //look for eligible VM and add
           for (j = 0; j < (*compat_machines)[i].vms.size (); j++)
             {
               if (VM_GetInfo ((*compat_machines)[i].vms[j]).vm_type ==
                   task.required_vm)
                 {
-                  // tasks_added++;
-                  // SimOutput("StateChangeComplete: " + to_string(tasks_added)
-                  // + " tasks added ", 0)
                   VM_AddTask ((*compat_machines)[i].vms[j], tasks[0],
                               task.priority);
                   break;
@@ -882,12 +918,8 @@ void Scheduler::ChangeComplete (Time_t now, MachineId_t machine_id)
             {
               (*compat_machines)[i].vms.push_back (
                   VM_Create (task.required_vm, task.required_cpu));
-              // SimOutput("That one", 0);
               VM_Attach ((*compat_machines)[i].vms[j],
                          (*compat_machines)[i].id);
-              // tasks_added++;
-              // SimOutput("StateChangeComplete: " + to_string(tasks_added) + "
-              // tasks added ", 0);
               VM_AddTask ((*compat_machines)[i].vms[j], tasks[0],
                           task.priority);
             }
