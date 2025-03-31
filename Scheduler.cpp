@@ -92,7 +92,7 @@ void SortMachines(vector<MachineVMs>& arr, levels& level) {
     return;
   }
   sort(arr.begin(), arr.end(), sort_perf);
-  size_t machine_count = 16;  // define how many high/low machines intially on
+  size_t machine_count = 16;  // define how many high/low machines initially on
   float high_frac = 0.6f;
   size_t gpu_count = 0;
   size_t high_count = 0;
@@ -133,7 +133,7 @@ void SortMachines(vector<MachineVMs>& arr, levels& level) {
   }
 }
 
-/* Init: Sorts machines accoding to their CPU types. Then sort
+/* Init: Sorts machines according to their CPU types. Then sort
    machines by performance level.
 */
 void Scheduler::Init() {
@@ -170,7 +170,7 @@ void Scheduler::Init() {
   SortMachines(mc.power, lc.power_levels);
 }
 
-/* Update MachineVMs.vms and the migratino data structures. */
+/* Update MachineVMs.vms and the migration data structures. */
 void Scheduler::MigrationComplete(Time_t time, VMId_t vm_id) {
   MachineId_t m = VM_GetInfo(vm_id).machine_id;
   MachineInfo_t m_info = Machine_GetInfo(m);
@@ -215,7 +215,7 @@ bool dec_comp(MachineVMs a, MachineVMs b) {
 }
 
 /* Finds a machine that can support this task. Receives a task id
-   and a boolean defining whether we should search only active macines
+   and a boolean defining whether we should search only active machines
    When active is false, we put tasks on pending
 
    Returns a boolean that indicates whether we successfully found a
@@ -405,7 +405,7 @@ void Scheduler::AssignTasks() {
   }
 }
 
-/* Parse a new task. Put on different queues depending on gpu-capability and
+/* Process a new task. Put on different queues depending on gpu-capability and
    SLA
 */
 void Scheduler::NewTask(Time_t now, TaskId_t task_id) {
@@ -438,7 +438,7 @@ void Scheduler::NewTask(Time_t now, TaskId_t task_id) {
   AssignTasks();
 }
 
-/* Checks whether a method is in migration */
+/* Checks whether a machine is in migration */
 bool InMigration(MachineVMs mvm) {
   bool found = false;
   for (const auto& pair : in_migration) {
