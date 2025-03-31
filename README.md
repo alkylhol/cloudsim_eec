@@ -2,7 +2,7 @@
 
 This scheduler uses a greedy approach to scheduling tasks.
 
-## Methods
+## Core Methods
 
 - **Init()**: Assigns a set number (`machine_count`) of machines to S3 initially.
 
