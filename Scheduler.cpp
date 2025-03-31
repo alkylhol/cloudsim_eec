@@ -9,59 +9,47 @@
 #include <bits/stdc++.h>
 #include <unordered_map>
 
+// Data structure that holds the id and state of each machine along with the VMs running on it
+// State is defined as the state the machine is transferring to
 typedef struct {
     MachineId_t id;
     MachineState_t s;
     vector<VMId_t> vms;
 } MachineVMs;
 
+// This structure holds the machines classified by each CPU type
 typedef struct {
     vector<MachineVMs> arm;
     vector<MachineVMs> power;
     vector<MachineVMs> riscv;
     vector<MachineVMs> x86;
 } machine_cpus;
+
+// This structure holds the pending tasks and memory used on transferring machines
 typedef struct {
     vector<TaskId_t> tasks;
     size_t memory_used;
 } tasks_and_memory;
+
+// Unordered map to access the above data structure by MachineId_t in constant time
 static unordered_map<MachineId_t, tasks_and_memory> pending;
 
-
+// List of vectors containing tasks of each level of priorities
 static vector<TaskId_t> high_gpu;
 static vector<TaskId_t> high_pri;
 static vector<TaskId_t> mid_pri;
 static vector<TaskId_t> low_gpu;
 static vector<TaskId_t> low_pri;
 
-static int tasks_completed;
-// static int tasks_added;
-static bool migrating = false;
-//static unsigned active_machines = 0;
+// global variable instantiation of machine_cpus
 static machine_cpus mc;
+
+// How often to migrate VMs
 static int migrate_frequency = 500;
 static int cycle = 0;
 
-// void TurnOnFraction(float frac, vector<MachineVMs> arr){
-//     size_t i = 0;
-//     while(i*1.0f/arr.size() < frac){
-//         Machine_SetState(arr[i].id, S0);
-//         arr[i].s = S0;
-//         i++;
-//         // machines.push_back(i);
-//         // active_machines++;
-//     }
-//     while(i < arr.size()){
-//         MachineState_t state_sleep = S3;
-//         arr[i].s = S3;
-//         Machine_SetState(arr[i].id, state_sleep);
-//         i++;
-//     }
-// }     
-static size_t arm_cnt = 0;
-static size_t x86_cnt = 0;
-static size_t riscv_cnt = 0;
-static size_t power_cnt = 0;
+
+
 void Scheduler::Init() {
     // Find the parameters of the clusters
     // Get the total number of machines
@@ -70,17 +58,25 @@ void Scheduler::Init() {
     //      Get the memory of the machine
     //      Get the number of CPUs
     //      Get if there is a GPU or not
-    // 
+
+    //Outputs to aid debugging
     SimOutput("Scheduler::Init(): Total number of machines is " + to_string(Machine_GetTotal()), 3);
     SimOutput("Scheduler::Init(): Initializing scheduler", 1);
-    //check how many machines of each cpu type
+
+    // Counter of each machine type
+    size_t arm_cnt = 0;
+    size_t x86_cnt = 0;
+    size_t riscv_cnt = 0;
+    size_t power_cnt = 0;
     size_t i;
+
+    // Turn on fraction of machines based on the total number of machines of each cpu_type
     for (i = 0; i < Machine_GetTotal(); i++) {
         MachineVMs machine;// = {MachineId_t(i), {}};
         machine.id = MachineId_t(i);
         machine.s = S0;
         MachineState_t state_sleep = S3;
-        size_t machine_cnt = 6;
+        size_t machine_cnt = 24;
         switch(Machine_GetCPUType(MachineId_t(i))){
             case ARM:
                 if(arm_cnt > machine_cnt){
@@ -116,15 +112,6 @@ void Scheduler::Init() {
                 break;
         }
     }
-
-
-    // TurnOnFraction(frac, mc.arm);
-    // TurnOnFraction(frac, mc.x86);
-    // TurnOnFraction(frac, mc.riscv); 
-    // TurnOnFraction(frac, mc.power);
-    
-
-    //SimOutput("Scheduler::Init(): VM ids are " + to_string() + " ahd " + to_string(vms[1]), 3);
 }
 
 
@@ -160,6 +147,13 @@ void Scheduler::MigrationComplete(Time_t time, VMId_t vm_id) {
 
 }
 
+/* This function is used to compare two MachineVMs based on their memory utilization
+   It returns true if the first machine has a higher memory utilization than the second one
+   This is used for sorting the machines in descending order of their memory utilization
+   Higher utilization machines will be prioritized for task allocation
+   This is useful for load balancing and ensuring efficient resource usage
+   Note: Usage in std::sort()
+*/
 bool dec_comp (MachineVMs a, MachineVMs b) {
     MachineInfo_t a_info = Machine_GetInfo(a.id);
     MachineInfo_t b_info = Machine_GetInfo(b.id);
@@ -168,7 +162,13 @@ bool dec_comp (MachineVMs a, MachineVMs b) {
     return util_a > util_b;
 }
 
-
+/* This function finds a suitable machine for the given task_id based on the active flag
+   If active is true, it will only consider machines that are in S0
+   If active is false, it will consider machines that are not in S0 and can accommodate the task
+   It returns true if a suitable machine is found and assigns the task to it
+   Otherwise, it returns false
+   Note: This function also updates the pending tasks for machines when active is false
+*/
 bool Scheduler::FindMachine(TaskId_t task_id, bool active) {
     TaskInfo_t task = GetTaskInfo(task_id);
     vector<MachineVMs>* compat_machines = nullptr;
@@ -190,16 +190,19 @@ bool Scheduler::FindMachine(TaskId_t task_id, bool active) {
 
     if (!compat_machines) return false;
 
+    // Sort the machines based on their memory utilization in descending order
     size_t i = 0;
     sort(compat_machines->begin(), compat_machines->end(), dec_comp);
     
+    // Go through machines to find match
     for (i = 0; i < compat_machines->size(); i++) {
         MachineVMs& machine = (*compat_machines)[i];  // cleaner access
         MachineInfo_t m_info = Machine_GetInfo(machine.id);
 
         SimOutput("FindMachine " + to_string(m_info.machine_id) + " in state " + to_string(m_info.s_state), 4); 
         SimOutput("FindMachine transitioning to " + to_string((size_t)machine.s), 4); 
-
+        
+        //Criteria to skip based on parameters
         if (active && (m_info.s_state != S0 || m_info.s_state != machine.s)) {
             continue;
         }
@@ -207,6 +210,7 @@ bool Scheduler::FindMachine(TaskId_t task_id, bool active) {
             continue;
         }
 
+        // Make sure theres enough memory available
         if (m_info.memory_used + task.required_memory < m_info.memory_size && m_info.active_tasks < m_info.num_cpus) {
             bool allowed = active;
             allowed = allowed || (!active && pending.find(machine.id) == pending.end());
@@ -218,6 +222,7 @@ bool Scheduler::FindMachine(TaskId_t task_id, bool active) {
             if (!allowed) continue;
 
             if (!active) {
+                // Add to pending if this machine is not S0
                 if (pending.find(machine.id) != pending.end()) {
                     pending[machine.id].tasks.push_back(task_id);
                     pending[machine.id].memory_used += task.required_memory;
@@ -258,6 +263,11 @@ bool Scheduler::FindMachine(TaskId_t task_id, bool active) {
     return false;
 }
 
+/* This function assigns tasks to machines based on their priority levels
+   It processes tasks in the order of high_gpu, high_pri, mid_pri, low_gpu, and low_pri
+   It tries to find a suitable machine for each task in the respective priority list
+   Note: This function calls FindMachine() to find a suitable machine for each task
+*/
 void Scheduler::AssignTasks(){
     bool done = false;
     while(!done && !high_gpu.empty()){
@@ -507,8 +517,6 @@ void Scheduler::TaskComplete(Time_t now, TaskId_t task_id) {
     }
     SimOutput("Scheduler::TaskComplete(): Task " + to_string(task_id) + " is complete at " + to_string(now), 4);
     SimOutput("Scheduler::TaskComplete(): Task " + to_string(task_id) + " is complete", 4);
-    tasks_completed++;
-    SimOutput("Scheduler::TaskComplete(): " + to_string(tasks_completed) + " tasks completed ", 4);
 }
 
 
@@ -603,7 +611,7 @@ void MigrationDone(Time_t time, VMId_t vm_id) {
     // The function is called on to alert you that migration is complete
     SimOutput("MigrationDone(): Migration of VM " + to_string(vm_id) + " was completed at time " + to_string(time), 4);
     Scheduler.MigrationComplete(time, vm_id);
-    migrating = false;
+    //migrating = false;
 }
 
 void SchedulerCheck(Time_t time) {
