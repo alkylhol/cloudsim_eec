@@ -1,3 +1,14 @@
-This is the repository for the Cloud Simulator project for CS 378. To run this project, you can compile the Scheduler with make scheduler and run make simulator to create your simulator executable. Run ./simulator Input.md to see your results.
+# E-Eco Scheduler
 
-For questions, please reach out to any of the course staff on via email (anish.palakurthi@utexas.edu, tarun.mohan@utexas.edu, mootaz@austin.utexas.edu) or Ed Discussion.
+This scheduler uses a e-eco approach to scheduling tasks, as defined in lecture. We 
+put a specific fraction of machines in S0, S3, and S5. Then, we manage the number
+of machines in each bin, ensuring that each level stays close to its ideal fraction.
+
+## Core Methods
+
+- **Init()**: Assigns a set fraction of machines to S0, S3, and S5.
+
+- **NewTask()**: Greedily assigns tasks to S0 machines. If none are available,
+we look through S3, and then S5 machines and wake them up.
+
+- **TaskComplete()**: Finds the lowest task on the lower utilization half of machines and migrates it to an available higher utilization machine.
