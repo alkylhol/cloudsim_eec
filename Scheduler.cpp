@@ -185,7 +185,7 @@ bool dec_comp(MachineVMs a, MachineVMs b) {
 }
 
 /* Finds a machine that can support this task. Receives a task id
-   and a boolean defining whether we should search only active macines
+   and a boolean defining whether we should search only active machines
    When active is false, we put tasks on pending.
 
    Returns a boolean that indicates whether we successfully found a
@@ -379,7 +379,7 @@ void Scheduler::NewTask(Time_t now, TaskId_t task_id) {
   AssignTasks();
 }
 
-/* Checks whether a method is in migration */
+/* Checks whether a machine is in migration */
 bool InMigration(MachineVMs mvm) {
   bool found = false;
   for (const auto& pair : in_migration) {
