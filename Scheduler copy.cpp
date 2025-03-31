@@ -3,7 +3,7 @@
 //  CloudSim
 //
 //  Created by ELMOOTAZBELLAH ELNOZAHY on 10/20/24.
-// greedy
+// Leveled
 
 #include "Scheduler.hpp"
 #include <bits/stdc++.h>
@@ -15,31 +15,6 @@ typedef struct {
     vector<VMId_t> vms;
 } MachineVMs;
 
-typedef struct{
-    vector<MachineVMs> gpu;
-    vector<MachineVMs> high; //SLA0, SLA1
-    vector<MachineVMs> low; //SLA2, SLA3
-} levels;
-
-typedef struct {
-    vector<TaskId_t> tasks;
-    size_t memory_used;
-} tasks_and_memory;
-unordered_map<MachineId_t, tasks_and_memory> pending;
-
-
-vector<TaskId_t> high_pri;
-vector<TaskId_t> mid_pri;
-vector<TaskId_t> low_pri;
-
-typedef struct {
-    levels arm_levels;
-    levels power_levels;
-    levels riscv_levels;
-    levels x86_levels;
-} machine_cpus;
-
-
 typedef struct {
     vector<TaskId_t> tasks;
     size_t memory_used;
@@ -47,8 +22,10 @@ typedef struct {
 static unordered_map<MachineId_t, tasks_and_memory> pending;
 
 
+static vector<TaskId_t> high_gpu;
 static vector<TaskId_t> high_pri;
 static vector<TaskId_t> mid_pri;
+static vector<TaskId_t> low_gpu;
 static vector<TaskId_t> low_pri;
 
 static int tasks_completed;
@@ -59,26 +36,72 @@ static machine_cpus mc;
 static int migrate_frequency = 500;
 static int cycle = 0;
 
-// void TurnOnFraction(float frac, vector<MachineVMs> arr){
-//     size_t i = 0;
-//     while(i*1.0f/arr.size() < frac){
-//         Machine_SetState(arr[i].id, S0);
-//         arr[i].s = S0;
-//         i++;
-//         // machines.push_back(i);
-//         // active_machines++;
-//     }
-//     while(i < arr.size()){
-//         MachineState_t state_sleep = S3;
-//         arr[i].s = S3;
-//         Machine_SetState(arr[i].id, state_sleep);
-//         i++;
-//     }
-// }     
-static size_t arm_cnt = 0;
-static size_t x86_cnt = 0;
-static size_t riscv_cnt = 0;
-static size_t power_cnt = 0;
+typedef struct{
+    vector<MachineVMs> gpu;
+    vector<MachineVMs> low_gpu;
+    vector<MachineVMs> high; //SLA0, SLA1
+    vector<MachineVMs> low; //SLA2, SLA3
+} levels;
+
+typedef struct {
+    levels arm_levels;
+    levels power_levels;
+    levels riscv_levels;
+    levels x86_levels;
+} machine_cpus;
+
+static bool migrating = false;
+static machine_cpus mc;
+
+void TurnOnFraction(float frac, vector<MachineVMs> arr){
+    size_t i = 0;
+    while(i*1.0f/arr.size() < frac){
+        Machine_SetState(arr[i].id, S0);
+        i++;
+        // machines.push_back(i);
+        // active_machines++;
+    }
+    while(i < arr.size()){
+        Machine_SetState(arr[i].id, S0);
+        i++;
+    }
+}
+
+void SortMachines(vector<MachineVMs>& arr , levels& level){
+    if(arr.empty()){
+        return;
+    }
+    vector<unsigned> perfs;
+    for(MachineVMs mvm : arr){
+        unsigned perf = Machine_GetInfo(mvm.id).performance[0];
+        if(count(perfs.begin(), perfs.end(), perf) == 0){
+            perfs.push_back(perf);
+        }
+    }
+    sort(perfs.begin(), perfs.end(), [](int a, int b) {
+        return a > b; 
+    });
+
+    for(MachineVMs mvm : arr){
+        unsigned perf = Machine_GetInfo(mvm.id).performance[0];
+        size_t i = 0;
+        for(i = 0; i < perfs.size(); i++){
+            if(perf == perfs[i]){
+                break;
+            }
+        }
+        if(Machine_GetInfo(mvm.id).gpus){
+            level.gpu.push_back(mvm);
+        }
+        // no else, we can still use GPU machines for CPU task
+        if(i == perfs.size()-1 && i > 0){ // we put the lowest performing one, if there exists one
+            level.low.push_back(mvm);
+        } else {
+            level.high.push_back(mvm);
+        }
+
+    }
+}
 void Scheduler::Init() {
     // Find the parameters of the clusters
     // Get the total number of machines
@@ -92,53 +115,43 @@ void Scheduler::Init() {
     SimOutput("Scheduler::Init(): Initializing scheduler", 1);
     //check how many machines of each cpu type
     size_t i;
+
+    vector<MachineVMs> arm;
+    vector<MachineVMs> x86;
+    vector<MachineVMs> riscv;
+    vector<MachineVMs> power;
+
     for (i = 0; i < Machine_GetTotal(); i++) {
         MachineVMs machine;// = {MachineId_t(i), {}};
         machine.id = MachineId_t(i);
-        machine.s = S0;
-        MachineState_t state_sleep = S3;
-        size_t machine_cnt = 1;
+
         switch(Machine_GetCPUType(MachineId_t(i))){
             case ARM:
-                if(arm_cnt > machine_cnt){
-                    machine.s = state_sleep;
-                    Machine_SetState(machine.id, state_sleep);
-                }
-                arm_cnt++;
-                mc.arm.push_back(machine);
+                arm.push_back(machine);
                 break;
             case X86:
-                if(x86_cnt > machine_cnt){
-                    machine.s = state_sleep;
-                    Machine_SetState(machine.id, state_sleep);
-                }
-                x86_cnt++;
-                mc.x86.push_back(machine);
+                x86.push_back(machine);
                 break;
             case RISCV:
-                if(riscv_cnt > machine_cnt){
-                    machine.s = state_sleep;
-                    Machine_SetState(machine.id, state_sleep);
-                }
-                riscv_cnt++;
-                mc.riscv.push_back(machine);
+                riscv.push_back(machine);
                 break;
             case POWER:
-                if(power_cnt > machine_cnt){
-                    machine.s = state_sleep;
-                    Machine_SetState(machine.id, state_sleep);
-                }
-                power_cnt++;
-                mc.power.push_back(machine); 
+                power.push_back(machine); 
                 break;
         }
     }
+   
+    SortMachines(arm, mc.arm_levels);
+    SortMachines(x86, mc.x86_levels);
+    SortMachines(riscv, mc.riscv_levels);
+    SortMachines(power, mc.power_levels);
 
-
-    // TurnOnFraction(frac, mc.arm);
-    // TurnOnFraction(frac, mc.x86);
-    // TurnOnFraction(frac, mc.riscv); 
-    // TurnOnFraction(frac, mc.power);
+    // //turn on about 1/3 of the machines
+    // float frac = 1.0f/3.0f;
+    // TurnOnFraction(frac, arm);
+    // TurnOnFraction(frac, x86);
+    // TurnOnFraction(frac, riscv); 
+    // TurnOnFraction(frac, power);
     
 
     //SimOutput("Scheduler::Init(): VM ids are " + to_string() + " ahd " + to_string(vms[1]), 3);
@@ -277,6 +290,16 @@ bool Scheduler::FindMachine(TaskId_t task_id, bool active) {
 
 void Scheduler::AssignTasks(){
     bool done = false;
+    while(!done && !high_gpu.empty()){
+        if(!FindMachine(high_gpu[0], true)){
+            if (!FindMachine(high_gpu[0], false)){
+                done = true;
+                break;
+            }
+        }
+        high_gpu.erase(high_gpu.begin());
+    }
+    done = false;
     while(!done && !high_pri.empty()){
         if(!FindMachine(high_pri[0], true)){
             if (!FindMachine(high_pri[0], false)){
@@ -286,6 +309,7 @@ void Scheduler::AssignTasks(){
         }
         high_pri.erase(high_pri.begin());
     }
+    done = false;
     while(!done && !mid_pri.empty()){
         if(!FindMachine(mid_pri[0], true)){
             if (!FindMachine(mid_pri[0], false)){
@@ -295,6 +319,17 @@ void Scheduler::AssignTasks(){
         }
         mid_pri.erase(mid_pri.begin());
     }
+    done = false;
+    while(!done && !low_gpu.empty()){
+        if(!FindMachine(low_gpu[0], true)){
+            if (!FindMachine(low_gpu[0], false)){
+                done = true;
+                break;
+            }
+        }
+        low_gpu.erase(low_gpu.begin());
+    }
+    done = false;
     while(!done && !low_pri.empty()){
         if(!FindMachine(low_pri[0], true)){
             if (!FindMachine(low_pri[0], false)){
@@ -311,13 +346,25 @@ void Scheduler::NewTask(Time_t now, TaskId_t task_id) {
     switch(task.required_sla){
         case SLA0:
         case SLA1:
-            high_pri.push_back(task_id);
+            if(task.gpu_capable){
+                high_gpu.push_back(task_id);
+            } else {
+                high_pri.push_back(task_id);
+            }
             break;
         case SLA2:
-            mid_pri.push_back(task_id);
+            if(task.gpu_capable){
+                high_gpu.push_back(task_id);
+            } else {
+                mid_pri.push_back(task_id);
+            }
             break;
         case SLA3:
-            low_pri.push_back(task_id);
+            if(task.gpu_capable){
+                low_gpu.push_back(task_id);
+            } else {
+                low_pri.push_back(task_id);
+            }
             break;
     }
     AssignTasks();
