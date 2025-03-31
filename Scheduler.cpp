@@ -320,6 +320,12 @@ void Scheduler::AssignTasks(){
         low_pri.erase(low_pri.begin());
     }
 }
+
+/* Asynchronously called when a new task is added
+   It checks the task's required SLA and GPU capability
+   It adds the task to the appropriate priority list based on its SLA and GPU capability
+   Finally, it calls AssignTasks() to assign tasks to machines
+*/
 void Scheduler::NewTask(Time_t now, TaskId_t task_id) {
     // Get the task parameters
     TaskInfo_t task = GetTaskInfo(task_id);
@@ -348,32 +354,11 @@ void Scheduler::NewTask(Time_t now, TaskId_t task_id) {
             break;
     }
     AssignTasks();
-
-
-    // if(!FindMachine(task_id, true)){
-    //     if (!FindMachine(task_id, false)){
-    //         SimOutput("task not added", 0);
-    //         switch(task.priority){
-    //             case HIGH_PRIORITY:
-    //                 high_pri.push_back(task_id);
-    //                 break;
-    //             case MID_PRIORITY:
-    //                 mid_pri.push_back(task_id);
-    //                 break;
-    //             case LOW_PRIORITY:
-    //                 low_pri.push_back(task_id);
-    //                 break;
-    //         }
-    //     }
-    // }
-    // if(migrating) {
-    //     VM_AddTask(vms[0], task_id, priority);
-    // }
-    // else {
-    //     VM_AddTask(vms[task_id % active_machines], task_id, priority);
-    // }// Skeleton code, you need to change it according to your algorithm
 }
 
+/* Asynchronously called every so often
+   It checks if any tasks still need to be assigned, and assigns them
+*/
 void Scheduler::PeriodicCheck(Time_t now) {
     // This method should be called from SchedulerCheck()
     // SchedulerCheck is called periodically by the simulator to allow you to monitor, make decisions, adjustments, etc.
@@ -385,6 +370,7 @@ void Scheduler::PeriodicCheck(Time_t now) {
     AssignTasks();
 
 }
+
 
 void Scheduler::Shutdown(Time_t time) {
     // Do your final reporting and bookkeeping here.
@@ -415,6 +401,9 @@ void Scheduler::Shutdown(Time_t time) {
     SimOutput("SimulationComplete(): Time is " + to_string(time), 4);
 }
 
+// This function is used to compare two MachineVMs based on their memory utilization
+// It returns true if the first machine has a lower memory utilization than the second one
+// This is used for sorting the machines in ascending order of their memory utilization
 bool comp (MachineVMs a, MachineVMs b) {
     MachineInfo_t a_info = Machine_GetInfo(a.id);
     MachineInfo_t b_info = Machine_GetInfo(b.id);
@@ -422,6 +411,8 @@ bool comp (MachineVMs a, MachineVMs b) {
     float util_b = (b_info.memory_used * 1.0f) / (b_info.memory_size * 1.0f);
     return util_a < util_b;
 }
+
+// This function is called when a task is completed
 
 void Scheduler::TaskComplete(Time_t now, TaskId_t task_id) {
     TaskInfo_t task = GetTaskInfo(task_id);
@@ -519,7 +510,8 @@ void Scheduler::TaskComplete(Time_t now, TaskId_t task_id) {
     SimOutput("Scheduler::TaskComplete(): Task " + to_string(task_id) + " is complete", 4);
 }
 
-
+// This function is called when a state change is complete
+// It adds the pending tasks to the machine if updated state is S0
 void Scheduler::ChangeComplete(Time_t now, MachineId_t machine_id){
     MachineInfo_t m_info = Machine_GetInfo(machine_id);
     SimOutput("StateChangeComplete: Machine "+ to_string(m_info.machine_id) + " in state " + to_string(m_info.s_state) + " ", 4); 
@@ -556,11 +548,8 @@ void Scheduler::ChangeComplete(Time_t now, MachineId_t machine_id){
 
         //exists
         vector<TaskId_t>& tasks = pending[machine_id].tasks;
-        // SimOutput("StateChangeComplete: " + to_string(tasks_added) + " tasks added ", 0);
         while (!tasks.empty()){
             TaskInfo_t task = GetTaskInfo(tasks[0]);
-            // m_info.active_tasks --;
-            // m_info.memory_used -= task.required_memory;
             size_t j = 0;
             for(j = 0; j < (*compat_machines)[i].vms.size(); j++){
                 if(VM_GetInfo((*compat_machines)[i].vms[j]).vm_type == task.required_vm){
@@ -572,10 +561,7 @@ void Scheduler::ChangeComplete(Time_t now, MachineId_t machine_id){
             }
             if(j == (*compat_machines)[i].vms.size()){                
                 (*compat_machines)[i].vms.push_back(VM_Create(task.required_vm, task.required_cpu));
-                //SimOutput("That one", 0);
                 VM_Attach((*compat_machines)[i].vms[j], (*compat_machines)[i].id);
-                // tasks_added++;
-                // SimOutput("StateChangeComplete: " + to_string(tasks_added) + " tasks added ", 0);
                 VM_AddTask((*compat_machines)[i].vms[j], tasks[0], task.priority);
             }
             tasks.erase(tasks.begin());
@@ -639,7 +625,6 @@ void SLAWarning(Time_t time, TaskId_t task_id) {
 }
 
 void StateChangeComplete(Time_t time, MachineId_t machine_id) {
-    //SimOutput(to_string(time), 0);
     Scheduler.ChangeComplete(time, machine_id);
 }
 
