@@ -8,6 +8,8 @@
 #include <bits/stdc++.h>
 #include <unordered_map>
 
+// Data structure that holds the id and state of each machine along with the VMs running on it
+// State is defined as the state the machine is transferring to
 typedef struct
 {
   MachineId_t id;
@@ -15,6 +17,7 @@ typedef struct
   vector<VMId_t> vms;
 } MachineVMs;
 
+// This structure holds the machines classified by each CPU type
 typedef struct
 {
   vector<MachineVMs> arm;
@@ -22,32 +25,42 @@ typedef struct
   vector<MachineVMs> riscv;
   vector<MachineVMs> x86;
 } machine_cpus;
+
+// This structure holds the pending tasks and memory used on transferring machines
 typedef struct
 {
   vector<TaskId_t> tasks;
   size_t memory_used;
 } tasks_and_memory;
+
+// Unordered map to access the above data structure by MachineId_t in constant time
 static unordered_map<MachineId_t, tasks_and_memory> pending;
 
+// List of vectors containing tasks of each level of priorities
 static vector<TaskId_t> high_gpu;
 static vector<TaskId_t> high_pri;
 static vector<TaskId_t> mid_pri;
 static vector<TaskId_t> low_gpu;
 static vector<TaskId_t> low_pri;
 
+
 static int tasks_completed;
 static bool migrating = false;
+
+// global variable instantiation of machine_cpus
 static machine_cpus mc;
 static int migrate_frequency = 500;
 static int cycle = 0;
 
+// Fraction of machines we want to start in S0 and S3
 static float s0_frac = 0.90f;
 static float s3_frac = 0.05f;
 
+// map of migration
 static unordered_map<VMId_t, MachineId_t> in_migration;
 static vector<MachineId_t> receiving;
 
-
+// Function to compare two machines based on their memory utilization
 void Scheduler::Init ()
 {
   SimOutput ("Scheduler::Init(): Total number of machines is " +
